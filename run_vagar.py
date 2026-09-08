@@ -63,6 +63,8 @@ async def main():
                 matched_skill = next(s for s in available if "subnet" in s)
             elif any(w in lowered for w in ["port", "ports"]) and "create" not in lowered and any("port" in s for s in available):
                 matched_skill = next(s for s in available if "port" in s)
+            elif any(w in lowered for w in ["notify", "notification", "alert"]) and "create" not in lowered and any("notification" in s for s in available):
+                matched_skill = next(s for s in available if "notification" in s)
 
             if matched_skill:
                 res = claw.execute_skill(matched_skill)
