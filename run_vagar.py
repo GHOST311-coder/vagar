@@ -59,7 +59,9 @@ async def main():
                 matched_skill = next(s for s in available if "memory" in s)
             elif "uptime" in lowered and "create" not in lowered and any("uptime" in s for s in available):
                 matched_skill = next(s for s in available if "uptime" in s)
-            elif any(w in lowered for w in ["port", "ports", "scan"]) and "create" not in lowered and any("port" in s for s in available):
+            elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and "create" not in lowered and any("subnet" in s for s in available):
+                matched_skill = next(s for s in available if "subnet" in s)
+            elif any(w in lowered for w in ["port", "ports"]) and "create" not in lowered and any("port" in s for s in available):
                 matched_skill = next(s for s in available if "port" in s)
 
             if matched_skill:
