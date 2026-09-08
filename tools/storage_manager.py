@@ -12,7 +12,6 @@ def storage_manager(target_dir: str = "/sdcard", min_size_mb: int = 50):
     try:
         min_bytes = min_size_mb * 1024 * 1024
         for root, dirs, files in os.walk(target_path):
-            # Skip deeply nested or system restricted paths if needed
             if "Android/data" in root or "Android/obb" in root:
                 continue
             for file in files:
@@ -27,9 +26,7 @@ def storage_manager(target_dir: str = "/sdcard", min_size_mb: int = 50):
                 except (PermissionError, FileNotFoundError):
                     continue
                     
-        # Sort by largest first
         large_files = sorted(large_files, key=lambda x: x["size_mb"], reverse=True)[:20]
-        
         total, used, free = shutil.disk_usage(target_path if target_path == "/" else "/sdcard")
         
         return {
@@ -40,7 +37,7 @@ def storage_manager(target_dir: str = "/sdcard", min_size_mb: int = 50):
                 "free_gb": round(free / (2**30), 2)
             },
             "largest_files": large_files,
-            "message": fFound {len(large_files)} files larger than {min_size_mb}MB."
+            "message": f"Found {len(large_files)} files larger than {min_size_mb}MB."
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
