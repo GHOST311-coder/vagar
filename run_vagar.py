@@ -95,7 +95,7 @@ async def main():
                 print(supervisor.ledger.get_recent_context(limit=5))
                 continue
 
-            if user_input.startswith("!skill"):
+    if user_input.startswith("!skill"):
         parts = user_input[6:].strip().split(maxsplit=1)
         skill_name = parts[0] if parts else ""
         skill_arg = parts[1] if len(parts) > 1 else ""
@@ -106,8 +106,7 @@ async def main():
                 res = claw.execute_skill(skill_name, args=skill_arg)
             else:
                 res = claw.execute_skill(skill_name)
-            print(f"[Skill Result]:
-{res}")
+            print(f"[Skill Result]:\n{res}")
             try:
                 speak(f"Executed {skill_name}")
             except Exception:
