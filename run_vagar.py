@@ -73,7 +73,9 @@ async def main():
             matched_skill = None
             lowered = user_input.lower()
 
-            if any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer", "memory consumers"]) and any("top_memory_processes" in s for s in available):
+            if any(w in lowered for w in ["log report", "generate report", "save report", "snapshot"]) and any("generate_diagnostic_report" in s for s in available):
+                matched_skill = "generate_diagnostic_report"
+            elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer", "memory consumers"]) and any("top_memory_processes" in s for s in available):
                 matched_skill = "top_memory_processes"
             elif any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
                 matched_skill = next(s for s in available if "health" in s)
