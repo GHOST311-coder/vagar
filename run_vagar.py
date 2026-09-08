@@ -59,6 +59,8 @@ async def main():
                 matched_skill = next(s for s in available if "memory" in s)
             elif "uptime" in lowered and "create" not in lowered and any("uptime" in s for s in available):
                 matched_skill = next(s for s in available if "uptime" in s)
+            elif any(w in lowered for w in ["port", "ports", "scan"]) and "create" not in lowered and any("port" in s for s in available):
+                matched_skill = next(s for s in available if "port" in s)
 
             if matched_skill:
                 res = claw.execute_skill(matched_skill)
