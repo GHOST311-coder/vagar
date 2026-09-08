@@ -99,7 +99,7 @@ async def main():
             # Fast-path skill routing
             if any(w in lowered for w in ["read log", "read logs", "show logs", "view logs", "summarize the last", "recent diagnostic"]) and "read_recent_diagnostic_logs" in available:
                 matched_skill = "read_recent_diagnostic_logs"
-            elif any(w in lowered for w in ["log report", "generate report", "save report", "snapshot"]) and "generate_diagnostic_report" in available:
+            elif any(w in lowered for w in ["log report", "generate report", "save report", "take snapshot"]) and not any(w in lowered for w in ["compare", "difference", "between", "read"]) and "generate_diagnostic_report" in available:
                 matched_skill = "generate_diagnostic_report"
             elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer"]) and "top_memory_processes" in available:
                 matched_skill = "top_memory_processes"
