@@ -3,6 +3,8 @@ import sys
 import uuid
 from core.supervisor import VagarSupervisor
 from agents.ultron import UltronWorker
+from agents.hermes import HermesRelay
+from agents.jarvis import JarvisCognition
 from core.skillclaw import SkillClaw
 from core.evolver import SkillEvolver
 from core.router import IntentRouter
@@ -15,13 +17,22 @@ async def main():
     claw = SkillClaw()
     evolver = SkillEvolver(claw)
     router = IntentRouter()
+    hermes = HermesRelay(ledger=supervisor.ledger)
+    jarvis = JarvisCognition()
 
+    # Launch Ultron async execution engine
     asyncio.create_task(worker.run_worker_loop())
 
-    if "system_memory_usage" in claw.registry and "send_notification" in claw.registry:
+    # Launch Vagar Sentry monitoring loop linked to Hermes & SkillClaw
+    if "system_memory_usage" in claw.registry:
+        def sentry_alert(title, msg):
+            hermes.notify(title, msg)
+            if "send_notification" in claw.registry:
+                claw.execute_skill("send_notification", title=title, content=msg)
+
         sentry = VagarSentry(
             check_fn=claw.registry["system_memory_usage"],
-            alert_fn=claw.registry["send_notification"],
+            alert_fn=sentry_alert,
             process_fn=claw.registry.get("top_memory_processes"),
             cleanup_fn=claw.registry.get("sweep_cache"),
             report_fn=claw.registry.get("generate_diagnostic_report"),
@@ -32,14 +43,18 @@ async def main():
         asyncio.create_task(sentry.run_loop())
 
     print("==================================================")
-    print("             VAGAR INTENT SUPERVISOR              ")
-    print(" Voice Modes:                                     ")
+    print("      VAGAR AUTONOMOUS INTENT ARCHITECTURE        ")
+    print(" Core Agents: [Jarvis: Cognition]                 ")
+    print("              [Ultron: Execution]                 ")
+    print("              [Hermes: Messaging & Relay]         ")
+    print(" Modes:                                           ")
     print("   'listen' or '!voice' -> Single voice command   ")
-    print("   '!loop'              -> Hands-free loop mode   ")
+    print("   '!loop'              -> Hands-free voice loop  ")
     print(" Manual overrides: !cmd, !skill, !list, !history  ")
     print("==================================================")
 
-    speak("Vagar initialized and online.")
+    hermes.notify("System Status", "Vagar Trinity online: Jarvis, Ultron, and Hermes active.")
+    speak("Vagar initialized. Jarvis, Ultron, and Hermes operational.")
 
     continuous_mode = False
 
@@ -65,12 +80,13 @@ async def main():
 
             if user_input.lower() in ["exit", "quit"]:
                 speak("Supervisor powering down.")
+                hermes.notify("System Status", "Vagar supervisor shutting down.")
                 print("[Vagar] Supervisor offline.")
                 sys.exit(0)
 
             if user_input.lower() == "!loop":
                 continuous_mode = True
-                speak("Continuous listening engaged. Say stop listening to exit loop.")
+                speak("Continuous listening engaged. Say stop listening to exit.")
                 continue
 
             if user_input.lower() in ["!voice", "voice", "listen"]:
@@ -84,20 +100,23 @@ async def main():
                 print(f"[Heard]: \"{transcript}\"")
                 user_input = transcript
 
+            # Manual Ultron Execution
             if user_input.startswith("!cmd "):
                 shell_cmd = user_input.split(" ", 1)[1].strip()
-                print(f"[Ultron Executing]: {shell_cmd}")
+                print(f"[Ultron Dispatching]: {shell_cmd}")
                 res = await supervisor.dispatch(shell_cmd)
                 stdout = res.get("stdout", "")
                 stderr = res.get("stderr", "")
                 if stdout:
-                    print(f"[Output]:\n{stdout}")
+                    print(f"[Ultron Output]:\n{stdout}")
                 if stderr:
-                    print(f"[Error]:\n{stderr}")
+                    print(f"[Ultron Error]:\n{stderr}")
+                hermes.broadcast("ultron", "shell_exec", {"cmd": shell_cmd, "rc": res.get("returncode", 0)})
                 continue
 
             if user_input == "!list":
                 print(f"[Skills Available]: {list(claw.registry.keys())}")
+                print(f"[Agents Active]: Jarvis (Cognitive), Ultron (Execution), Hermes (Relay)")
                 continue
 
             if user_input == "!history":
@@ -122,12 +141,13 @@ async def main():
             if lowered.startswith("create a tool") or lowered.startswith("create tool"):
                 obj = user_input.split("tool", 1)[1].replace("to", "").strip()
                 tool_slug = "_".join(obj.split()[:4]).lower()
-                speak(f"Synthesizing tool {tool_slug}")
-                print(f"[Supervisor] Evolving new skill '{tool_slug}' via SkillClaw...")
+                speak(f"Jarvis synthesizing tool {tool_slug}")
+                print(f"[Jarvis] Evolving new skill '{tool_slug}' via SkillClaw...")
                 evolver.generate_tool(tool_slug, user_input)
+                hermes.notify("Tool Synthesized", f"SkillClaw created tool: {tool_slug}")
                 continue
 
-            # Skill matching
+            # SkillClaw Fast Path
             if any(w in lowered for w in ["ping", "latency", "connectivity", "internet"]) and "network_ping_latency" in available:
                 matched_skill = "network_ping_latency"
             elif any(w in lowered for w in ["read log", "read logs", "show logs", "view logs", "diagnostic log", "recent diagnostic"]) and "read_recent_diagnostic_logs" in available:
@@ -148,8 +168,10 @@ async def main():
                 matched_skill = "network_interface_ips_gateway"
             elif any(w in lowered for w in ["port", "ports"]) and any("port" in s for s in available):
                 matched_skill = "port_scanner" if "port_scanner" in available else next(s for s in available if "port" in s)
-            elif any(w in lowered for w in ["notify", "notification", "alert"]) and any("notification" in s for s in available):
-                matched_skill = "send_notification" if "send_notification" in available else next(s for s in available if "notification" in s)
+            elif any(w in lowered for w in ["notify", "notification", "alert"]):
+                hermes.notify("Voice Alert", user_input)
+                speak("Notification sent.")
+                continue
             elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
                 matched_skill = next(s for s in available if "memory" in s)
             elif "uptime" in lowered and any("uptime" in s for s in available):
@@ -173,11 +195,12 @@ async def main():
                     print(f"  {res}")
                     speak(str(res))
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
+                hermes.broadcast("skillclaw", matched_skill, {"result": str(res)})
                 continue
 
-            # Fallback to router
+            # Jarvis Cognitive Fallback
             history = supervisor.ledger.get_recent_context(limit=3)
-            decision = router.route(user_input, available_skills=available, history_context=history)
+            decision = jarvis.route_intent(user_input, router=router, available_skills=available, history=history)
             intent = decision.get("intent", "shell_exec")
             target = decision.get("target", user_input)
 
@@ -193,6 +216,7 @@ async def main():
                     print(f"  {k}: {v}")
                 speak("Skill execution finished.")
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", target, 0, str(res), "")
+                hermes.broadcast("jarvis", "skill_exec", {"skill": target, "result": str(res)})
 
             else:
                 print(f"[Jarvis -> Ultron Executing]: {user_input}")
@@ -203,7 +227,8 @@ async def main():
                     print(f"[Ultron Output]:\n{stdout}")
                 if stderr:
                     print(f"[Ultron Error]:\n{stderr}")
-                speak("Command executed.")
+                speak("Ultron completed task.")
+                hermes.broadcast("ultron", "direct_dispatch", {"task": user_input, "rc": res.get("returncode", 0)})
 
         except (KeyboardInterrupt, EOFError):
             print("\n[Vagar] Shutting down.")

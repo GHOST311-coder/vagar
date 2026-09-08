@@ -1,76 +1,43 @@
 import asyncio
-import os
-import uuid
-from pathlib import Path
-from core.supervisor import VagarSupervisor
+import subprocess
 
 class UltronWorker:
-    def __init__(self, supervisor: VagarSupervisor, default_timeout: int = 15, sandbox_dir: str = "sandbox"):
+    """Ultron: Autonomous background worker and system execution engine."""
+    def __init__(self, supervisor):
         self.supervisor = supervisor
-        self.timeout = default_timeout
-        self.sandbox_path = Path(sandbox_dir).resolve()
-        self.sandbox_path.mkdir(exist_ok=True)
+        self.queue = asyncio.Queue()
+        self.is_running = False
 
-    async def execute_task(self, task) -> None:
-        stdout_str = ""
-        stderr_str = ""
-        exit_code = 1
-        task_id = getattr(task, "id", str(uuid.uuid4())[:8])
+    async def enqueue(self, task_id: str, command: str):
+        await self.queue.put((task_id, command))
 
-        try:
-            process = await asyncio.create_subprocess_shell(
-                task.command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(self.sandbox_path),
-                env=os.environ.copy()
-            )
-
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.timeout
-            )
-            stdout_str = stdout_bytes.decode(errors="replace").strip()
-            stderr_str = stderr_bytes.decode(errors="replace").strip()
-            exit_code = process.returncode if process.returncode is not None else 0
-
-        except asyncio.TimeoutError:
+    async def run_worker_loop(self):
+        self.is_running = True
+        while self.is_running:
             try:
-                process.kill()
-                await process.wait()
-            except Exception:
-                pass
-            stderr_str = f"[Ultron Error] Execution timed out after {self.timeout} seconds."
-            exit_code = 124
+                task = await asyncio.wait_for(self.queue.get(), timeout=1.0)
+                task_id, command = task
+                await self.execute_task(task_id, command)
+                self.queue.task_done()
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
 
-        except Exception as e:
-            stderr_str = f"[Ultron Internal Failure]: {type(e).__name__} - {str(e)}"
-            exit_code = 1
-
+    async def execute_task(self, task_id: str, command: str):
         try:
-            self.supervisor.ledger.log(
-                task_id=task_id,
-                agent=task.agent,
-                command=task.command,
-                exit_code=exit_code,
-                stdout=stdout_str,
-                stderr=stderr_str
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-        except Exception:
-            pass
-
-        result_payload = {
-            "task_id": task_id,
-            "exit_code": exit_code,
-            "stdout": stdout_str,
-            "stderr": stderr_str
-        }
-        if not task.future.done():
-            task.future.set_result(result_payload)
-
-    async def run_worker_loop(self) -> None:
-        while True:
-            task = await self.supervisor.queue.get()
-            if task.agent == "ultron":
-                await self.execute_task(task)
-            self.supervisor.queue.task_done()
+            stdout, stderr = await proc.communicate()
+            out_str = stdout.decode().strip()
+            err_str = stderr.decode().strip()
+            self.supervisor.ledger.log(
+                task_id, "ultron_worker", command, proc.returncode, out_str, err_str
+            )
+            return {"returncode": proc.returncode, "stdout": out_str, "stderr": err_str}
+        except Exception as e:
+            self.supervisor.ledger.log(task_id, "ultron_worker", command, 1, "", str(e))
+            return {"returncode": 1, "stdout": "", "stderr": str(e)}
