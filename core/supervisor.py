@@ -1,24 +1,21 @@
 import asyncio
 import sqlite3
-from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict
-import uuid
+from typing import Dict, Any, List
 
-@dataclass
 class AgentTask:
-    action: str
-    command: str
-    task_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-    agent: str = "ultron"
-    future: asyncio.Future = field(default_factory=asyncio.Future)
+    def __init__(self, action: str, command: str, agent: str = "ultron"):
+        self.action = action
+        self.command = command
+        self.agent = agent
+        self.future = asyncio.get_event_loop().create_future()
 
 class ExecutionLedger:
-    def __init__(self, db_path: str = "data/vagar_state.db"):
+    def __init__(self, db_path: str = "ledger.db"):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._init_db()
+        self.create_tables()
 
-    def _init_db(self):
+    def create_tables(self):
         with self.conn:
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS execution_logs (
@@ -38,6 +35,30 @@ class ExecutionLedger:
                 "INSERT INTO execution_logs VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (task_id, agent, command, exit_code, stdout, stderr, datetime.utcnow().isoformat())
             )
+
+    def get_recent_context(self, limit: int = 3) -> str:
+        with self.conn:
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT agent, command, stdout, stderr 
+                FROM execution_logs 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            """, (limit,))
+            rows = cur.fetchall()
+
+        if not rows:
+            return "No previous execution history."
+
+        context_lines = []
+        for agent, cmd, stdout, stderr in reversed(rows):
+            output = stdout.strip() if stdout else stderr.strip()
+            # Truncate large outputs so context stays compact
+            if len(output) > 200:
+                output = output[:200] + "... [truncated]"
+            context_lines.append(f"[{agent}] ran '{cmd}' -> Result: {output}")
+
+        return "\n".join(context_lines)
 
 class VagarSupervisor:
     def __init__(self):

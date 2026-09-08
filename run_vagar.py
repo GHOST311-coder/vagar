@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import uuid
 from core.supervisor import VagarSupervisor
 from agents.ultron import UltronWorker
 from core.skillclaw import SkillClaw
@@ -19,8 +20,8 @@ async def main():
     print("             VAGAR INTENT SUPERVISOR              ")
     print(" Speak/Type naturally in plain English:          ")
     print("   - 'How much RAM is free?'                      ")
-    print("   - 'What is my network IP?'                     ")
-    print("   - 'Create a tool to calculate uptime in hours' ")
+    print("   - 'Is that memory usage safe?'                 ")
+    print("   - 'Create a tool to scan ports'                ")
     print(" Manual overrides: !cmd, !skill, !list, exit      ")
     print("==================================================")
 
@@ -44,39 +45,44 @@ async def main():
                 if skill_name in claw.registry:
                     res = claw.execute_skill(skill_name)
                     print(f"[Skill Result]:\n{res}")
+                    supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", skill_name, 0, str(res), "")
                 else:
-                    print(f"[Error]: Skill '{skill_name}' not found in registry.")
+                    print(f"[Error]: Skill '{skill_name}' not found.")
                 continue
 
             available = list(claw.registry.keys())
             matched_skill = None
-
-            # Instant match for existing registered skills
             lowered = user_input.lower()
-            if ("ram" in lowered or "memory" in lowered) and any("memory" in s or "ram" in s for s in available):
-                matched_skill = next(s for s in available if "memory" in s or "ram" in s)
+
+            # Fast path for direct metric requests
+            if ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
+                matched_skill = next(s for s in available if "memory" in s)
             elif "uptime" in lowered and "create" not in lowered and any("uptime" in s for s in available):
                 matched_skill = next(s for s in available if "uptime" in s)
-            elif ("ip" in lowered or "network" in lowered or "interface" in lowered) and "create" not in lowered and any("network" in s or "ip" in s for s in available):
-                matched_skill = next(s for s in available if "network" in s or "ip" in s)
 
             if matched_skill:
                 res = claw.execute_skill(matched_skill)
                 print(f"[{matched_skill} Result]:")
                 for k, v in res.items():
                     print(f"  {k}: {v}")
+                supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
                 continue
 
-            # Route generic or synthesis queries
-            decision = router.route(user_input, available_skills=available)
+            # Pass historical context into the router
+            history = supervisor.ledger.get_recent_context(limit=3)
+            decision = router.route(user_input, available_skills=available, history_context=history)
             intent = decision.get("intent", "shell_exec")
             target = decision.get("target", user_input)
 
-            if intent == "skill_exec" and target in claw.registry:
+            if intent == "answer":
+                print(f"[Jarvis]: {decision.get('response', 'Understood.')}")
+
+            elif intent == "skill_exec" and target in claw.registry:
                 res = claw.execute_skill(target)
                 print(f"[{target} Result]:")
                 for k, v in res.items():
                     print(f"  {k}: {v}")
+                supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", target, 0, str(res), "")
 
             elif intent == "skill_evolve" or lowered.startswith("create a tool"):
                 tool_name = target if target and target != user_input else "custom_tool"

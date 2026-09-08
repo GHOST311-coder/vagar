@@ -1,5 +1,4 @@
 import json
-import re
 import requests
 from typing import Dict, Any, List
 
@@ -8,19 +7,21 @@ class IntentRouter:
         self.ollama_url = f"{ollama_url}/api/generate"
         self.model = model
 
-    def route(self, user_input: str, available_skills: List[str] = None) -> Dict[str, Any]:
+    def route(self, user_input: str, available_skills: List[str] = None, history_context: str = "") -> Dict[str, Any]:
         skills_str = ", ".join(available_skills) if available_skills else "none"
-        
+
         prompt = (
-            f"You are the intent router for Vagar on Android Termux.\n"
-            f"Currently registered skills: [{skills_str}]\n\n"
-            f"Determine the intent of: \"{user_input}\"\n"
+            f"You are the intent router and brain for Vagar on Android Termux.\n"
+            f"Registered skills: [{skills_str}]\n\n"
+            f"Recent Command/Tool History:\n{history_context}\n\n"
+            f"User input: \"{user_input}\"\n\n"
             f"Choose ONE intent type:\n"
-            f"1. 'skill_exec': If the query asks for information that matches one of the registered skills.\n"
-            f"2. 'skill_evolve': If the user explicitly asks to create, build, or synthesize a new tool.\n"
-            f"3. 'shell_exec': If the input is a direct terminal command or general task.\n\n"
-            f"Respond ONLY in valid JSON with no markdown:\n"
-            f'{{"intent": "skill_exec"|"skill_evolve"|"shell_exec", "target": "<skill_name or command>", "objective": "<description>"}}'
+            f"1. 'skill_exec': If the query asks to run a registered skill.\n"
+            f"2. 'skill_evolve': If the user asks to build/create/synthesize a new tool.\n"
+            f"3. 'answer': If the user is asking a conversational question or asking about the previous output.\n"
+            f"4. 'shell_exec': If the input is a raw terminal command to execute.\n\n"
+            f"Respond ONLY in valid JSON:\n"
+            f'{{"intent": "skill_exec"|"skill_evolve"|"answer"|"shell_exec", "target": "<skill or command>", "response": "<conversational answer if intent is answer>"}}'
         )
 
         try:
