@@ -1,0 +1,28 @@
+import os
+import sys
+
+def run(**kwargs):
+    # Direct relative imports from the tools package
+    sys.path.insert(0, os.path.dirname(__file__))
+    
+    report = {}
+
+    try:
+        import system_memory_usage
+        report["memory"] = system_memory_usage.run()
+    except Exception as e:
+        report["memory"] = {"error": str(e)}
+
+    try:
+        import uptime_hours
+        report["uptime"] = uptime_hours.run()
+    except Exception as e:
+        report["uptime"] = {"error": str(e)}
+
+    try:
+        import port_scanner
+        report["ports"] = port_scanner.run()
+    except Exception as e:
+        report["ports"] = {"error": str(e)}
+
+    return report

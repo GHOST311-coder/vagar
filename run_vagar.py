@@ -20,9 +20,9 @@ async def main():
     print("             VAGAR INTENT SUPERVISOR              ")
     print(" Speak/Type naturally in plain English:          ")
     print("   - 'How much RAM is free?'                      ")
-    print("   - 'Is that memory usage safe?'                 ")
-    print("   - 'Create a tool to scan ports'                ")
-    print(" Manual overrides: !cmd, !skill, !list, exit      ")
+    print("   - 'Full health check'                          ")
+    print("   - 'Scan subnet hosts'                          ")
+    print(" Manual overrides: !cmd, !skill, !list, !history  ")
     print("==================================================")
 
     while True:
@@ -40,6 +40,11 @@ async def main():
                 print(f"[Skills Available]: {list(claw.registry.keys())}")
                 continue
 
+            if user_input == "!history":
+                print("[Recent Task History]:")
+                print(supervisor.ledger.get_recent_context(limit=5))
+                continue
+
             if user_input.startswith("!skill "):
                 skill_name = user_input.split(" ", 1)[1].strip()
                 if skill_name in claw.registry:
@@ -54,27 +59,32 @@ async def main():
             matched_skill = None
             lowered = user_input.lower()
 
-            # Fast path for direct metric requests
-            if ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
-                matched_skill = next(s for s in available if "memory" in s)
-            elif "uptime" in lowered and "create" not in lowered and any("uptime" in s for s in available):
-                matched_skill = next(s for s in available if "uptime" in s)
+            # Fast-path matching
+            if any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
+                matched_skill = next(s for s in available if "health" in s)
             elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and "create" not in lowered and any("subnet" in s for s in available):
                 matched_skill = next(s for s in available if "subnet" in s)
             elif any(w in lowered for w in ["port", "ports"]) and "create" not in lowered and any("port" in s for s in available):
                 matched_skill = next(s for s in available if "port" in s)
             elif any(w in lowered for w in ["notify", "notification", "alert"]) and "create" not in lowered and any("notification" in s for s in available):
                 matched_skill = next(s for s in available if "notification" in s)
+            elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
+                matched_skill = next(s for s in available if "memory" in s)
+            elif "uptime" in lowered and "create" not in lowered and any("uptime" in s for s in available):
+                matched_skill = next(s for s in available if "uptime" in s)
 
             if matched_skill:
                 res = claw.execute_skill(matched_skill)
                 print(f"[{matched_skill} Result]:")
-                for k, v in res.items():
-                    print(f"  {k}: {v}")
+                if isinstance(res, dict):
+                    for k, v in res.items():
+                        print(f"  {k}: {v}")
+                else:
+                    print(f"  {res}")
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
                 continue
 
-            # Pass historical context into the router
+            # Route generic or contextual queries
             history = supervisor.ledger.get_recent_context(limit=3)
             decision = router.route(user_input, available_skills=available, history_context=history)
             intent = decision.get("intent", "shell_exec")
