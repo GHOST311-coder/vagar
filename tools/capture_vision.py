@@ -4,8 +4,20 @@ import base64
 import json
 import urllib.request
 
+def _get_active_model():
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = data.get("models", [])
+            if models:
+                return models[0].get("name", "llama3:latest")
+    except Exception:
+        pass
+    return "llama3:latest"
+
 def capture_vision(prompt_text: str = "Describe what you see in this image."):
-    """Captures a frame and sends it to the local model for vision analysis."""
+    """Captures a frame and sends it to the active local model for vision analysis."""
     try:
         os.makedirs("tools", exist_ok=True)
         img_path = "tools/latest_capture.jpg"
@@ -20,9 +32,9 @@ def capture_vision(prompt_text: str = "Describe what you see in this image."):
         with open(img_path, "rb") as f:
             img_base64 = base64.b64encode(f.read()).decode("utf-8")
             
-        # Query Ollama with image payload
+        active_model = _get_active_model()
         req_data = {
-            "model": "qwen2-vl:latest",  # or your vision model tag
+            "model": active_model,
             "prompt": prompt_text,
             "images": [img_base64],
             "stream": False
@@ -38,7 +50,8 @@ def capture_vision(prompt_text: str = "Describe what you see in this image."):
             data = json.loads(resp.read().decode("utf-8"))
             return {
                 "status": "success",
-                "description": data.get("response", "No response from vision model.")
+                "model_used": active_model,
+                "description": data.get("response", "No response from model.")
             }
     except Exception as e:
         return {"status": "error", "message": str(e)}
