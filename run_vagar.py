@@ -37,7 +37,7 @@ async def main():
     print(" Speak/Type naturally in plain English:          ")
     print("   - 'How much RAM is free?'                      ")
     print("   - 'Full health check'                          ")
-    print("   - 'Scan subnet hosts'                          ")
+    print("   - 'Read diagnostic logs'                       ")
     print(" Manual overrides: !cmd, !skill, !list, !history  ")
     print("==================================================")
 
@@ -52,7 +52,7 @@ async def main():
                 print("[Vagar] Supervisor offline.")
                 sys.exit(0)
 
-            # Manual override: direct shell execution
+            # Direct shell override
             if user_input.startswith("!cmd "):
                 shell_cmd = user_input.split(" ", 1)[1].strip()
                 print(f"[Ultron Executing]: {shell_cmd}")
@@ -88,26 +88,36 @@ async def main():
             matched_skill = None
             lowered = user_input.lower()
 
+            # Forced tool synthesis route
+            if lowered.startswith("create a tool") or lowered.startswith("create tool"):
+                obj = user_input.split("tool", 1)[1].replace("to", "").strip()
+                tool_slug = "_".join(obj.split()[:4]).lower()
+                print(f"[Supervisor] Evolving new skill '{tool_slug}' via SkillClaw...")
+                evolver.generate_tool(tool_slug, user_input)
+                continue
+
             # Fast-path skill routing
-            if any(w in lowered for w in ["log report", "generate report", "save report", "snapshot"]) and any("generate_diagnostic_report" in s for s in available):
+            if any(w in lowered for w in ["read log", "read logs", "show logs", "view logs", "summarize the last", "recent diagnostic"]) and "read_recent_diagnostic_logs" in available:
+                matched_skill = "read_recent_diagnostic_logs"
+            elif any(w in lowered for w in ["log report", "generate report", "save report", "snapshot"]) and "generate_diagnostic_report" in available:
                 matched_skill = "generate_diagnostic_report"
-            elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer"]) and any("top_memory_processes" in s for s in available):
+            elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer"]) and "top_memory_processes" in available:
                 matched_skill = "top_memory_processes"
-            elif any(w in lowered for w in ["clean", "sweep", "cache", "temp"]) and not any(w in lowered for w in ["create", "make", "build"]) and any("sweep_cache" in s for s in available):
+            elif any(w in lowered for w in ["clean", "sweep", "cache", "temp"]) and "sweep_cache" in available:
                 matched_skill = "sweep_cache"
-            elif any(w in lowered for w in ["cpu", "load", "processor"]) and not any(w in lowered for w in ["create", "make", "build"]) and any("cpu" in s for s in available):
+            elif any(w in lowered for w in ["cpu", "load", "processor"]) and any("cpu" in s for s in available):
                 matched_skill = next(s for s in available if "cpu" in s)
             elif any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
                 matched_skill = next(s for s in available if "health" in s)
-            elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and "create" not in lowered and any("subnet" in s for s in available):
+            elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and any("subnet" in s for s in available):
                 matched_skill = next(s for s in available if "subnet" in s)
-            elif any(w in lowered for w in ["port", "ports"]) and "create" not in lowered and any("port" in s for s in available):
+            elif any(w in lowered for w in ["port", "ports"]) and any("port" in s for s in available):
                 matched_skill = next(s for s in available if "port" in s)
-            elif any(w in lowered for w in ["notify", "notification", "alert"]) and "create" not in lowered and any("notification" in s for s in available):
+            elif any(w in lowered for w in ["notify", "notification", "alert"]) and any("notification" in s for s in available):
                 matched_skill = next(s for s in available if "notification" in s)
-            elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["create", "make", "build", "why", "is", "should", "explain", "safe", "top", "process", "processes"]) and any("memory" in s for s in available):
+            elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
                 matched_skill = next(s for s in available if "memory" in s)
-            elif "uptime" in lowered and "create" not in lowered and any("uptime" in s for s in available):
+            elif "uptime" in lowered and any("uptime" in s for s in available):
                 matched_skill = next(s for s in available if "uptime" in s)
 
             if matched_skill:
@@ -121,7 +131,7 @@ async def main():
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
                 continue
 
-            # Route natural language or synthesis requests
+            # Route natural language reasoning or shell fallback
             history = supervisor.ledger.get_recent_context(limit=3)
             decision = router.route(user_input, available_skills=available, history_context=history)
             intent = decision.get("intent", "shell_exec")
@@ -136,11 +146,6 @@ async def main():
                 for k, v in res.items():
                     print(f"  {k}: {v}")
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", target, 0, str(res), "")
-
-            elif intent == "skill_evolve" or lowered.startswith("create a tool"):
-                tool_name = target if target and target != user_input else "custom_tool"
-                print(f"[Supervisor] Evolving new skill '{tool_name}' via SkillClaw...")
-                evolver.generate_tool(tool_name, decision.get("objective", user_input))
 
             else:
                 print(f"[Jarvis -> Ultron Executing]: {user_input}")
