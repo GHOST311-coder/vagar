@@ -7,12 +7,14 @@ class VagarSentry:
         check_fn: Callable,
         alert_fn: Callable,
         process_fn: Callable = None,
+        cleanup_fn: Callable = None,
         threshold_pct: float = 85.0,
         interval: int = 60
     ):
         self.check_fn = check_fn
         self.alert_fn = alert_fn
         self.process_fn = process_fn
+        self.cleanup_fn = cleanup_fn
         self.threshold = threshold_pct
         self.interval = interval
         self.running = False
@@ -32,8 +34,12 @@ class VagarSentry:
                         proc_lines = [f"{p['command']} (PID {p['pid']}): {p['mem_pct']}%" for p in top_procs]
                         details = "\nTop: " + ", ".join(proc_lines)
 
+                    if self.cleanup_fn:
+                        clean_res = self.cleanup_fn()
+                        details += f"\nAuto-Clean: Reclaimed {clean_res.get('space_reclaimed_kb', 0)} KB"
+
                     self.alert_fn(
-                        title="VAGAR MEMORY PRESSURE",
+                        title="VAGAR RESOURCE PRESSURE",
                         message=f"RAM at {usage}%! (Threshold: {self.threshold}%){details}"
                     )
             except Exception:

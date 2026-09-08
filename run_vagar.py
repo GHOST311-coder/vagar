@@ -24,6 +24,7 @@ async def main():
             check_fn=claw.registry["system_memory_usage"],
             alert_fn=claw.registry["send_notification"],
             process_fn=claw.registry.get("top_memory_processes"),
+            cleanup_fn=claw.registry.get("sweep_cache"),
             threshold_pct=85.0,
             interval=60
         )
