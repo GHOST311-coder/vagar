@@ -106,6 +106,7 @@ async def main():
                 res = claw.execute_skill(skill_name, args=skill_arg)
             else:
                 res = claw.execute_skill(skill_name)
+                
             print(f"[Skill Result]:\n{res}")
             try:
                 speak(f"Executed {skill_name}")
