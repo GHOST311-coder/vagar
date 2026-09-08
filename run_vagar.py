@@ -33,25 +33,46 @@ async def main():
 
     print("==================================================")
     print("             VAGAR INTENT SUPERVISOR              ")
-    print(" Voice Active: Type '!voice' or 'listen' to speak ")
+    print(" Voice Modes:                                     ")
+    print("   'listen' or '!voice' -> Single voice command   ")
+    print("   '!loop'              -> Hands-free loop mode   ")
     print(" Manual overrides: !cmd, !skill, !list, !history  ")
     print("==================================================")
 
-    speak("Vagar initialized and ready.")
+    speak("Vagar initialized and online.")
+
+    continuous_mode = False
 
     while True:
         try:
-            user_input = await asyncio.to_thread(input, "\nvagar> ")
-            user_input = user_input.strip()
-            if not user_input:
-                continue
+            if continuous_mode:
+                print("\n[Vagar Hands-Free]: Listening...")
+                voice_data = await asyncio.to_thread(listen)
+                user_input = voice_data.get("transcript", "").strip()
+                if not user_input:
+                    await asyncio.sleep(0.5)
+                    continue
+                print(f"[Heard]: \"{user_input}\"")
+                if user_input.lower() in ["stop listening", "exit voice", "cancel"]:
+                    continuous_mode = False
+                    speak("Continuous listening disabled.")
+                    continue
+            else:
+                user_input = await asyncio.to_thread(input, "\nvagar> ")
+                user_input = user_input.strip()
+                if not user_input:
+                    continue
 
             if user_input.lower() in ["exit", "quit"]:
                 speak("Supervisor powering down.")
                 print("[Vagar] Supervisor offline.")
                 sys.exit(0)
 
-            # Voice command trigger
+            if user_input.lower() == "!loop":
+                continuous_mode = True
+                speak("Continuous listening engaged. Say stop listening to exit loop.")
+                continue
+
             if user_input.lower() in ["!voice", "voice", "listen"]:
                 print("[Voice Engine]: Listening via microphone...")
                 voice_data = await asyncio.to_thread(listen)
@@ -63,7 +84,6 @@ async def main():
                 print(f"[Heard]: \"{transcript}\"")
                 user_input = transcript
 
-            # Shell override
             if user_input.startswith("!cmd "):
                 shell_cmd = user_input.split(" ", 1)[1].strip()
                 print(f"[Ultron Executing]: {shell_cmd}")
@@ -107,7 +127,7 @@ async def main():
                 evolver.generate_tool(tool_slug, user_input)
                 continue
 
-            # Fast-path keyword matching
+            # Skill matching
             if any(w in lowered for w in ["ping", "latency", "connectivity", "internet"]) and "network_ping_latency" in available:
                 matched_skill = "network_ping_latency"
             elif any(w in lowered for w in ["read log", "read logs", "show logs", "view logs", "diagnostic log", "recent diagnostic"]) and "read_recent_diagnostic_logs" in available:
@@ -127,9 +147,9 @@ async def main():
             elif any(w in lowered for w in ["gateway", "interface", "local ip"]) and "network_interface_ips_gateway" in available:
                 matched_skill = "network_interface_ips_gateway"
             elif any(w in lowered for w in ["port", "ports"]) and any("port" in s for s in available):
-                matched_skill = next(s for s in available if "port" in s)
+                matched_skill = "port_scanner" if "port_scanner" in available else next(s for s in available if "port" in s)
             elif any(w in lowered for w in ["notify", "notification", "alert"]) and any("notification" in s for s in available):
-                matched_skill = "notification" if "notification" in available else next(s for s in available if "notification" in s)
+                matched_skill = "send_notification" if "send_notification" in available else next(s for s in available if "notification" in s)
             elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
                 matched_skill = next(s for s in available if "memory" in s)
             elif "uptime" in lowered and any("uptime" in s for s in available):
@@ -144,18 +164,18 @@ async def main():
                     if "avg_latency_ms" in res and res["avg_latency_ms"] is not None:
                         speak(f"Average latency is {res['avg_latency_ms']} milliseconds.")
                     elif "memory_usage_pct" in res:
-                        speak(f"Memory usage is at {res['memory_usage_pct']}.")
+                        speak(f"Memory usage is at {res['memory_usage_pct']} percent.")
                     elif "free_ram_gb" in res:
                         speak(f"Free memory is {res['free_ram_gb']} gigabytes.")
                     elif "status" in res:
-                        speak(f"Operation completed with status {res['status']}.")
+                        speak(f"Status: {res['status']}.")
                 else:
                     print(f"  {res}")
                     speak(str(res))
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
                 continue
 
-            # Intent fallback
+            # Fallback to router
             history = supervisor.ledger.get_recent_context(limit=3)
             decision = router.route(user_input, available_skills=available, history_context=history)
             intent = decision.get("intent", "shell_exec")
