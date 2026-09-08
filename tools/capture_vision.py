@@ -1,30 +1,26 @@
+import subprocess
 import os
-import cv2
-import json
-import urllib.request
 
 def capture_vision(prompt_text: str = "Describe what you see in this image."):
-    """Captures a frame from the default Android/Termux camera and queries the local vision model."""
+    """Captures a frame using Termux API camera utility."""
     try:
-        # Open default device camera
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            return {"status": "error", "message": "Could not open device camera."}
-        
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret:
-            return {"status": "error", "message": "Failed to grab camera frame."}
-            
+        os.makedirs("tools", exist_ok=True)
         img_path = "tools/latest_capture.jpg"
-        cv2.imwrite(img_path, frame)
+        if os.path.exists(img_path):
+            os.remove(img_path)
+            
+        result = subprocess.run(["termux-camera-photo", img_path], capture_output=True, text=True, timeout=10)
         
-        # Check if model supports vision or fallback to text description of capture event
-        return {
-            "status": "success",
-            "image_path": img_path,
-            "message": "Frame captured successfully. Ready for multimodal analysis."
-        }
+        if os.path.exists(img_path) and os.path.getsize(img_path) > 0:
+            return {
+                "status": "success",
+                "image_path": img_path,
+                "message": "Frame captured successfully via Termux API."
+            }
+        else:
+            return {
+                "status": "error",
+                "message": f"Camera capture failed. Ensure termux-api package and app are installed. Output: {result.stderr}"
+            }
     except Exception as e:
         return {"status": "error", "message": str(e)}
