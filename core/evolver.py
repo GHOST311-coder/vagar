@@ -50,7 +50,7 @@ class SkillEvolver:
                 res = requests.post(
                     self.ollama_url,
                     json={"model": self.model, "prompt": full_prompt, "stream": False},
-                    timeout=60.0
+                    timeout=180.0
                 )
                 if res.status_code != 200:
                     return False
