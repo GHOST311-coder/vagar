@@ -17,24 +17,29 @@ class SkillEvolver:
 
     def generate_tool(self, tool_name: str, objective: str, max_retries: int = 3) -> bool:
         base_prompt = (
-            f"You are SkillClaw, an autonomous Python tool generator tailored for Android Termux userland.\n"
-            f"Create a standalone Python tool: '{tool_name}'.\n"
+            f"You are SkillClaw, an autonomous Python tool generator for Termux on Android.\n"
+            f"Generate a self-contained Python script for tool: '{tool_name}'.\n"
             f"Objective: {objective}\n\n"
-            f"ENVIRONMENT CONSTRAINTS (Android / Termux):\n"
-            f"1. Entrypoint MUST be: def run(**kwargs):\n"
-            f"2. Return a populated dict containing results. Never return an empty dict.\n"
-            f"3. Must NOT access restricted SELinux paths (e.g., /proc/uptime, /proc/kmsg, /sys/class/power_supply) which fail with Errno 13.\n"
-            f"4. For system uptime on Android, ALWAYS use: `time.clock_gettime(time.CLOCK_BOOTTIME) / 3600` or `time.monotonic() / 3600`.\n"
-            f"5. For storage, use `shutil.disk_usage('/data/data/com.termux/files/home')`.\n"
-            f"6. Always explicitly import required standard modules (time, os, shutil, sys).\n"
-            f"7. Output ONLY clean Python code inside ```python ``` blocks.\n"
+            "REQUIREMENTS:\n"
+            "1. Entrypoint MUST be exactly: def run(**kwargs) -> dict:\n"
+            "2. Must return a dict populated ONLY with data relevant to the objective. Never return an empty dict.\n"
+            "3. Import all necessary standard libraries (socket, os, sys, time, shutil).\n"
+            "4. Termux Android Constraints:\n"
+            "   - Do NOT run binary `ip` or access `/proc/net` (they fail or are not installed).\n"
+            "   - For local IP discovery, use standard socket techniques:\n"
+            "     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+            "     s.connect(('8.8.8.8', 80))\n"
+            "     local_ip = s.getsockname()[0]\n"
+            "     s.close()\n"
+            "   - For uptime, use `time.clock_gettime(time.CLOCK_BOOTTIME)`.\n"
+            "5. Output ONLY clean Python code inside ```python ``` blocks."
         )
 
         error_context = ""
         for attempt in range(1, max_retries + 1):
             full_prompt = base_prompt
             if error_context:
-                full_prompt += f"\nCRITICAL: Previous attempt failed with this error:\n{error_context}\nFix it according to the Android Termux constraints."
+                full_prompt += f"\nCRITICAL FIX: Previous attempt failed with:\n{error_context}\nFix it according to the requirements."
 
             try:
                 res = requests.post(
