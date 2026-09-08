@@ -1,16 +1,20 @@
 import os
 import shutil
 
-def storage_manager(path_arg: str = ""):
-    """Scans for large files or deletes a specified path passed directly."""
+def storage_manager(args: str = ""):
+    """Scans for large files or deletes a specified path if provided in the argument string."""
     try:
-        if path_arg:
-            target = os.path.expanduser(path_arg)
-            if os.path.exists(target):
-                size = os.path.getsize(target) / (1024 * 1024)
-                os.remove(target)
-                return {"status": "success", "message": f"Successfully deleted {target} (Freed {round(size, 2)} MB)."}
-            return {"status": "error", "message": f"Path not found: {target}"}
+        # Clean up any quotes or extra whitespace from the raw argument string
+        target_path = args.strip().strip("'").strip('"')
+        
+        if target_path:
+            expanded = os.path.expanduser(target_path)
+            if os.path.exists(expanded):
+                size_mb = round(os.path.getsize(expanded) / (1024 * 1024), 2)
+                os.remove(expanded)
+                return {"status": "success", "message": f"Successfully deleted {expanded} (Freed {size_mb} MB)."}
+            else:
+                return {"status": "error", "message": f"Path not found: {expanded}"}
             
         large_files = []
         for root, dirs, files in os.walk("/sdcard"):
@@ -26,6 +30,10 @@ def storage_manager(path_arg: str = ""):
                     continue
                     
         large_files = sorted(large_files, key=lambda x: x["size_mb"], reverse=True)[:15]
-        return {"status": "success", "large_files": large_files, "instruction": "To delete, run: !skill storage_manager /sdcard/path/to/file"}
+        return {
+            "status": "success", 
+            "large_files": large_files, 
+            "message": "Scan complete. To delete a file, type: !skill storage_manager /sdcard/path/to/file"
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
