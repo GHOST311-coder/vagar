@@ -27,7 +27,7 @@ class SkillEvolver:
         prompt = f"""Write ONLY a valid Python function named '{tool_name}' that does: {description}.
 Rules:
 - Return a dictionary or string.
-- Wrap everything in try-except.
+- Wrap ALL socket operations, file reads, and service lookups (like socket.getservbyport) in try-except blocks so unknown ports or errors default cleanly to 'unknown'.
 - NO markdown formatting, NO backticks, NO explanations. ONLY python code."""
 
         for attempt in range(3):
@@ -62,7 +62,7 @@ Rules:
                     if hasattr(mod, tool_name):
                         func = getattr(mod, tool_name)
                         self.skill_claw.register_dynamic_tool(tool_name, func)
-                        print(f"[Evolver] Successfully synthesized and loaded tool: {tool_name}")
+                        print(f"[Evolver] Successfully synthesized and loaded robust tool: {tool_name}")
                         return True
             except Exception as e:
                 print(f"[Evolver] Attempt {attempt + 1} failed: {e}")
