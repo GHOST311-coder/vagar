@@ -95,7 +95,7 @@ async def main():
                 print(supervisor.ledger.get_recent_context(limit=5))
                 continue
 
-            if user_input.startswith("!skill "):
+            if user_input.startswith("!skill"):
         parts = user_input[6:].strip().split(maxsplit=1)
         skill_name = parts[0] if parts else ""
         skill_arg = parts[1] if len(parts) > 1 else ""
@@ -106,7 +106,8 @@ async def main():
                 res = claw.execute_skill(skill_name, args=skill_arg)
             else:
                 res = claw.execute_skill(skill_name)
-            print(f"[Skill Result]:\n{res}")
+            print(f"[Skill Result]:
+{res}")
             try:
                 speak(f"Executed {skill_name}")
             except Exception:
@@ -114,65 +115,3 @@ async def main():
         else:
             print(f"[Error]: Skill '{skill_name}' not found.")
         continue
-        if skill_name in claw.registry:
-            import inspect
-            sig = inspect.signature(claw.registry[skill_name])
-            if len(sig.parameters) > 0:
-                res = claw.execute_skill(skill_name, args=skill_arg)
-            else:
-                res = claw.execute_skill(skill_name)
-            print(f"[Skill Result]:\n{res}")
-                    print(f"[Error]: Skill '{skill_name}' not found.")
-                continue
-
-            available = list(claw.registry.keys())
-            lowered = user_input.lower()
-
-            if lowered.startswith("create a tool") or lowered.startswith("create tool"):
-                obj = user_input.split("tool", 1)[1].replace("to", "").strip()
-                raw_slug = "_".join(obj.split()[:4]).lower()
-                tool_slug = re.sub(r'[^a-zA-Z0-9_]', '_', raw_slug)
-                if tool_slug and tool_slug[0].isdigit():
-                    tool_slug = "tool_" + tool_slug
-                speak(f"Synthesizing tool {tool_slug}")
-                print(f"[Jarvis] Evolving new skill '{tool_slug}'...")
-                evolver.generate_tool(tool_slug, user_input)
-                continue
-
-            # Fast path routing for core tools
-            matched_skill = None
-            if "ping" in lowered and "network_ping_latency" in available:
-                matched_skill = "network_ping_latency"
-            elif "memory" in lowered and "system_memory_usage" in available:
-                matched_skill = "system_memory_usage"
-            elif "clean" in lowered and "sweep_cache" in available:
-                matched_skill = "sweep_cache"
-            elif "storage" in lowered and "check_srage_usage" in available:
-                matched_skill = "check_srage_usage"
-
-            if matched_skill:
-                res = claw.execute_skill(matched_skill)
-                print(f"[{matched_skill} Result]: {res}")
-                speak(f"Executed {matched_skill}.")
-                continue
-
-            # General Cognitive Processing via Jarvis Local Brain
-            response = jarvis.query_local_brain(user_input)
-            if response:
-                print(f"[Jarvis]: {response}")
-                speak(response)
-            else:
-                print("[Jarvis]: I am processing...")
-                response = jarvis.query_local_brain(user_input)
-                if response:
-                    print(f"[Jarvis]: {response}")
-                    speak(response)
-                else:
-                    print("[Jarvis]: No response from local brain.")
-
-        except (KeyboardInterrupt, EOFError):
-            print("\n[Jarvis] Shutting down.")
-            break
-
-if __name__ == "__main__":
-    asyncio.run(main())
