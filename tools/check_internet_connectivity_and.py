@@ -1,32 +1,32 @@
-import os
-import time
+import subprocess
+import re
 
-def run(**kwargs) -> dict:
-    data = {
-        'internet_connected': False,
-        'ping_latency': None
-    }
-
+def run(**kwargs):
     try:
-        # Check internet connectivity
-        import urllib.request
-        response = urllib.request.urlopen('http://www.google.com', timeout=1)
-        if response.getcode() == 200:
-            data['internet_connected'] = True
+        proc = subprocess.run(
+            ["ping", "-c", "4", "www.google.com"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=8
+        )
+        output = proc.stdout
+        connected = (proc.returncode == 0)
+        
+        avg_latency_ms = None
+        match = re.search(r"rtt min/avg/max/mdev =\s*[\d\.]+/([\d\.]+)/", output)
+        if match:
+            avg_latency_ms = float(match.group(1))
 
-        # Ping latency (not a standard termux command, but can be calculated here)
-        start_time = time.clock_gettime(time.CLOCK_BOOTTIME)
-        ping_command = 'ping -c 4 www.google.com'
-        os.system(ping_command)
-        end_time = time.clock_gettime(time.CLOCK_BOOTTIME)
-        ping_latency = round(end_time - start_time, 2) * 1000  # Convert to milliseconds
-
-        data['ping_latency'] = ping_latency
+        return {
+            "internet_connected": connected,
+            "avg_latency_ms": avg_latency_ms,
+            "packets_transmitted": 4,
+            "packet_loss_pct": 0.0 if connected else 100.0
+        }
     except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        pass
-    return data
-
-if __name__ == '__main__':
-    run()
+        return {
+            "internet_connected": False,
+            "avg_latency_ms": None,
+            "error": str(e)
+        }
