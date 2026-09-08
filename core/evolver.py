@@ -27,7 +27,8 @@ class SkillEvolver:
         prompt = f"""Write ONLY a valid Python function named '{tool_name}' that does: {description}.
 Rules:
 - Return a dictionary or string.
-- Wrap ALL socket operations, file reads, and service lookups (like socket.getservbyport) in try-except blocks so unknown ports or errors default cleanly to 'unknown'.
+- NEVER use leading zeros for numbers (e.g., write 80, not 080, to avoid invalid decimal literal errors).
+- Wrap ALL socket operations, file reads, and service lookups in try-except blocks.
 - NO markdown formatting, NO backticks, NO explanations. ONLY python code."""
 
         for attempt in range(3):
