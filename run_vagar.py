@@ -96,9 +96,24 @@ async def main():
                 continue
 
             if user_input.startswith("!skill "):
-        parts = user_input.split(" ", 1)[1].strip().split(maxsplit=1)
+        parts = user_input[6:].strip().split(maxsplit=1)
         skill_name = parts[0] if parts else ""
         skill_arg = parts[1] if len(parts) > 1 else ""
+        if skill_name in claw.registry:
+            import inspect
+            sig = inspect.signature(claw.registry[skill_name])
+            if len(sig.parameters) > 0:
+                res = claw.execute_skill(skill_name, args=skill_arg)
+            else:
+                res = claw.execute_skill(skill_name)
+            print(f"[Skill Result]:\n{res}")
+            try:
+                speak(f"Executed {skill_name}")
+            except Exception:
+                pass
+        else:
+            print(f"[Error]: Skill '{skill_name}' not found.")
+        continue
         if skill_name in claw.registry:
             import inspect
             sig = inspect.signature(claw.registry[skill_name])
