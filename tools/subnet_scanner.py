@@ -14,7 +14,6 @@ def check_host(ip, port=80, timeout=0.15):
     return None
 
 def run(**kwargs):
-    # Detect current local IP
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(('8.8.8.8', 80))
@@ -27,11 +26,12 @@ def run(**kwargs):
     if local_ip == '127.0.0.1':
         return {"error": "No active network interface detected"}
 
-    # Determine subnet base (e.g. 192.168.1. or 100.80.100.)
     octets = local_ip.split('.')
     subnet_base = f"{octets[0]}.{octets[1]}.{octets[2]}."
 
-    # Scan first 30 host addresses concurrently
+    is_cgnat = local_ip.startswith("100.")
+    network_type = "Cellular CGNAT (client-isolated)" if is_cgnat else "Local Wi-Fi / Ethernet LAN"
+
     active_hosts = []
     targets = [f"{subnet_base}{i}" for i in range(1, 31)]
 
@@ -44,7 +44,9 @@ def run(**kwargs):
 
     return {
         "local_ip": local_ip,
+        "network_type": network_type,
         "subnet": f"{subnet_base}0/24",
         "scanned_range": f"{subnet_base}1 - {subnet_base}30",
-        "responsive_hosts": sorted(active_hosts)
+        "responsive_hosts": sorted(active_hosts),
+        "note": "Carrier isolation drops peer sweeps on mobile data." if is_cgnat else "LAN discovery active."
     }
