@@ -4,7 +4,6 @@ import json
 import urllib.request
 
 class SkillEvolver:
-    """Dynamically synthesizes new Python tool modules, validates them, and hot-loads them into SkillClaw."""
     def __init__(self, skill_claw, tools_dir="tools", ollama_host="http://127.0.0.1:11434"):
         self.skill_claw = skill_claw
         self.tools_dir = tools_dir
@@ -25,12 +24,11 @@ class SkillEvolver:
         return "llama3:latest"
 
     def generate_tool(self, tool_name: str, description: str):
-        prompt = f"""Write a Python function named '{tool_name}' that performs the following task: {description}.
-Requirements:
-- Return the result as a dictionary or string.
-- Handle all exceptions gracefully inside the function and return a dictionary with error info if something fails.
-- Do NOT include markdown code blocks like ```python or ```. Output ONLY raw executable Python code.
-- Ensure all string parsing uses safe methods."""
+        prompt = f"""Write ONLY a valid Python function named '{tool_name}' that does: {description}.
+Rules:
+- Return a dictionary or string.
+- Wrap everything in try-except.
+- NO markdown formatting, NO backticks, NO explanations. ONLY python code."""
 
         for attempt in range(3):
             try:
@@ -46,11 +44,12 @@ Requirements:
                 with urllib.request.urlopen(req, timeout=180) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     code = data.get("response", "").strip()
-                    if code.startswith("```"):
-                        code = code.split("\n", 1)[1]
-                    if code.endswith("```"):
-                        code = code.rsplit("\n", 1)[0]
-                    code = code.strip()
+                    if "```" in code:
+                        parts = code.split("```")
+                        for p in parts:
+                            if "def " in p:
+                                code = p.replace("python", "").strip()
+                                break
 
                     file_path = os.path.join(self.tools_dir, f"{tool_name}.py")
                     with open(file_path, "w") as f:
@@ -62,9 +61,8 @@ Requirements:
 
                     if hasattr(mod, tool_name):
                         func = getattr(mod, tool_name)
-                        func()
                         self.skill_claw.register_dynamic_tool(tool_name, func)
-                        print(f"[Evolver] Successfully synthesized and loaded tool: {tool_name} using model {self.model_name}")
+                        print(f"[Evolver] Successfully synthesized and loaded tool: {tool_name}")
                         return True
             except Exception as e:
                 print(f"[Evolver] Attempt {attempt + 1} failed: {e}")
