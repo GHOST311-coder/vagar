@@ -52,6 +52,19 @@ async def main():
                 print("[Vagar] Supervisor offline.")
                 sys.exit(0)
 
+            # Manual override: direct shell execution
+            if user_input.startswith("!cmd "):
+                shell_cmd = user_input.split(" ", 1)[1].strip()
+                print(f"[Ultron Executing]: {shell_cmd}")
+                res = await supervisor.dispatch(shell_cmd)
+                stdout = res.get("stdout", "")
+                stderr = res.get("stderr", "")
+                if stdout:
+                    print(f"[Output]:\n{stdout}")
+                if stderr:
+                    print(f"[Error]:\n{stderr}")
+                continue
+
             if user_input == "!list":
                 print(f"[Skills Available]: {list(claw.registry.keys())}")
                 continue
@@ -75,16 +88,17 @@ async def main():
             matched_skill = None
             lowered = user_input.lower()
 
+            # Fast-path skill routing
             if any(w in lowered for w in ["log report", "generate report", "save report", "snapshot"]) and any("generate_diagnostic_report" in s for s in available):
                 matched_skill = "generate_diagnostic_report"
-            elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer", "memory consumers"]) and any("top_memory_processes" in s for s in available):
+            elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer"]) and any("top_memory_processes" in s for s in available):
                 matched_skill = "top_memory_processes"
-            elif any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
-                matched_skill = next(s for s in available if "health" in s)
             elif any(w in lowered for w in ["clean", "sweep", "cache", "temp"]) and not any(w in lowered for w in ["create", "make", "build"]) and any("sweep_cache" in s for s in available):
                 matched_skill = "sweep_cache"
             elif any(w in lowered for w in ["cpu", "load", "processor"]) and not any(w in lowered for w in ["create", "make", "build"]) and any("cpu" in s for s in available):
                 matched_skill = next(s for s in available if "cpu" in s)
+            elif any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
+                matched_skill = next(s for s in available if "health" in s)
             elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and "create" not in lowered and any("subnet" in s for s in available):
                 matched_skill = next(s for s in available if "subnet" in s)
             elif any(w in lowered for w in ["port", "ports"]) and "create" not in lowered and any("port" in s for s in available):
@@ -107,6 +121,7 @@ async def main():
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
                 continue
 
+            # Route natural language or synthesis requests
             history = supervisor.ledger.get_recent_context(limit=3)
             decision = router.route(user_input, available_skills=available, history_context=history)
             intent = decision.get("intent", "shell_exec")
