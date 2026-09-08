@@ -2,10 +2,16 @@ import json
 import urllib.request
 
 class JarvisCognition:
-    """Handles core cognitive reasoning via local Ollama instance."""
+    """Handles core cognitive reasoning via local Ollama instance with Jarvis persona."""
     def __init__(self, ollama_host="http://127.0.0.1:11434"):
         self.ollama_host = ollama_host
         self.model_name = self._get_active_model()
+        self.system_prompt = (
+            "You are Jarvis, the core intelligence and supervisor of Vagar. "
+            "You manage system diagnostics, dynamic tool synthesis via SkillEvolver, "
+            "network reconnaissance, and local operations on Android and Termux. "
+            "Always speak as Jarvis, never mention other AI providers or models."
+        )
 
     def _get_active_model(self):
         try:
@@ -21,11 +27,12 @@ class JarvisCognition:
 
     def query_local_brain(self, prompt_text: str) -> str:
         try:
+            full_prompt = f"{self.system_prompt}\n\nUser: {prompt_text}\nJarvis:"
             req = urllib.request.Request(
                 f"{self.ollama_host}/api/generate",
                 data=json.dumps({
                     "model": self.model_name,
-                    "prompt": prompt_text,
+                    "prompt": full_prompt,
                     "stream": False
                 }).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
