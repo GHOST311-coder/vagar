@@ -11,7 +11,6 @@ class SkillClaw:
         self.registry: Dict[str, Callable] = {}
 
     def validate_syntax(self, code_str: str) -> Tuple[bool, str]:
-        """Validates Python syntax via AST."""
         try:
             ast.parse(code_str)
             return True, "Syntax valid"
@@ -19,7 +18,6 @@ class SkillClaw:
             return False, f"AST Syntax Error at line {e.lineno}: {e.msg}"
 
     def register_tool_from_code(self, tool_name: str, code_str: str) -> Tuple[bool, str]:
-        """Validates AST, writes file, dry-runs execution, and registers if clean."""
         is_valid, message = self.validate_syntax(code_str)
         if not is_valid:
             return False, message
@@ -37,16 +35,18 @@ class SkillClaw:
             if not (hasattr(module, "run") and callable(module.run)):
                 return False, "Module missing mandatory callable entrypoint: 'run(**kwargs)'"
 
-            # Pre-flight Dry Run: Catch missing imports/NameErrors before activation
             test_run = module.run()
             if not isinstance(test_run, dict):
-                return False, f"Entrypoint run() must return dict, got {type(test_run).__name__}"
+                return False, f"run() must return dict, got {type(test_run).__name__}"
+            if len(test_run) == 0:
+                return False, "Dry-run returned empty dictionary {}. Must populate valid result keys."
+            if "error" in test_run:
+                return False, f"Dry-run caught runtime failure: {test_run.get('error')}"
 
             self.registry[tool_name] = module.run
             return True, f"Skill '{tool_name}' verified and hot-reloaded."
 
         except Exception as e:
-            # Clean up broken script from disk so it does not persist
             if tool_file.exists():
                 tool_file.unlink()
             return False, f"Runtime dry-run failed: {type(e).__name__} - {str(e)}"
@@ -54,5 +54,4 @@ class SkillClaw:
     async def execute_skill(self, tool_name: str, **kwargs) -> Any:
         if tool_name not in self.registry:
             raise KeyError(f"Skill '{tool_name}' not loaded in registry.")
-        func = self.registry[tool_name]
-        return func(**kwargs)
+        return self.registry[tool_name](**kwargs)

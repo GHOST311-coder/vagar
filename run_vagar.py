@@ -1,63 +1,62 @@
 import asyncio
-import sys
 from core.supervisor import VagarSupervisor
 from agents.ultron import UltronWorker
 from core.skillclaw import SkillClaw
 from core.evolver import SkillEvolver
+from core.router import IntentRouter
 
 BANNER = """
 =============================================
-         VAGAR AUTONOMOUS SUPERVISOR
- Commands:
-   !cmd <bash>        -> Execute shell via Ultron
-   !skill <name> <obj>-> Synthesize/Run SkillClaw
-   !list              -> View loaded skills
-   exit / quit        -> Terminate engine
+         VAGAR INTENT SUPERVISOR
+ Speak/Type naturally in plain English:
+   - "How much RAM is free?"
+   - "What is my battery level?"
+   - "Create a tool to calculate uptime in hours"
+ Manual overrides: !cmd, !skill, !list, exit
 =============================================
 """
 
-async def handle_input(line: str, supervisor: VagarSupervisor, claw: SkillClaw, evolver: SkillEvolver):
-    line = line.strip()
-    if not line:
-        return
+async def process_intent(prompt: str, router: IntentRouter, supervisor: VagarSupervisor, claw: SkillClaw, evolver: SkillEvolver):
+    known_skills = list(claw.registry.keys())
+    decision = router.route(prompt, known_skills)
+    intent = decision.get("intent", "chat")
 
-    # Direct Ultron Shell Execution
-    if line.startswith("!cmd "):
-        cmd = line[5:].strip()
-        print(f"\n[Jarvis -> Ultron] Running: {cmd}")
+    if intent == "shell":
+        cmd = decision.get("command", "")
+        print(f"\n[Jarvis -> Ultron Executing]: {cmd}")
         res = await supervisor.dispatch(cmd, agent="ultron")
-        if res.get("stdout"):
-            print(f"[Stdout]:\n{res['stdout']}")
-        if res.get("stderr"):
-            print(f"[Stderr]:\n{res['stderr']}")
-        print(f"[Exit Code]: {res['exit_code']}\n")
+        out = res.get("stdout") or res.get("stderr") or "Execution complete."
+        print(f"[Ultron Output]:\n{out}\n")
 
-    # SkillClaw Synthesis or Invocation
-    elif line.startswith("!skill "):
-        parts = line[7:].strip().split(" ", 1)
-        tool_name = parts[0]
-        objective = parts[1] if len(parts) > 1 else "Execute tool"
-
-        if tool_name not in claw.registry:
-            print(f"\n[Supervisor] '{tool_name}' not loaded. Triggering SkillClaw...")
-            created = evolver.generate_tool(tool_name, objective)
-            if not created:
-                print(f"[Error] Skill evolution failed for {tool_name}\n")
-                return
-
-        print(f"\n[Jarvis] Executing skill '{tool_name}'...")
-        try:
-            output = await claw.execute_skill(tool_name)
+    elif intent == "skill_exec":
+        name = decision.get("skill_name", "")
+        # Resilient fallback: if skill is missing, redirect to evolver instead of crashing
+        if name not in claw.registry:
+            print(f"\n[Supervisor] Skill '{name}' not in registry. Redirecting to SkillClaw...")
+            created = evolver.generate_tool(name, prompt)
+            if created:
+                output = await claw.execute_skill(name)
+                print(f"[Skill Result]:\n{output}\n")
+            else:
+                print(f"[Error] Failed to evolve skill '{name}'\n")
+        else:
+            print(f"\n[Jarvis Invoking Skill]: {name}")
+            output = await claw.execute_skill(name)
             print(f"[Skill Result]:\n{output}\n")
-        except Exception as e:
-            print(f"[Execution Error]: {str(e)}\n")
 
-    # List loaded dynamic modules
-    elif line == "!list":
-        print(f"\n[Loaded Skills in Memory]: {list(claw.registry.keys())}\n")
+    elif intent == "skill_evolve":
+        name = decision.get("skill_name", "custom_task")
+        obj = decision.get("objective", prompt)
+        print(f"\n[Supervisor] Evolving new skill '{name}' via SkillClaw...")
+        created = evolver.generate_tool(name, obj)
+        if created:
+            output = await claw.execute_skill(name)
+            print(f"[Skill Result]:\n{output}\n")
+        else:
+            print(f"[Error] Failed to evolve skill '{name}'\n")
 
     else:
-        print("[Jarvis] Unrecognized command. Use !cmd, !skill, or !list.")
+        print(f"\n[Jarvis]: {decision.get('reply', 'Acknowledged.')}\n")
 
 async def main():
     print(BANNER)
@@ -65,25 +64,30 @@ async def main():
     ultron = UltronWorker(supervisor)
     claw = SkillClaw()
     evolver = SkillEvolver(claw, ollama_url="http://127.0.0.1:11434", model="qwen2.5-coder:1.5b")
+    router = IntentRouter(ollama_url="http://127.0.0.1:11434", model="qwen2.5-coder:1.5b")
 
-    # Pre-register any previously generated tools on startup
     for file in claw.tools_path.glob("*.py"):
         if file.name != "__init__.py":
-            name = file.stem
-            claw.register_tool_from_code(name, file.read_text())
+            claw.register_tool_from_code(file.stem, file.read_text())
 
     worker_task = asyncio.create_task(ultron.run_worker_loop())
 
     try:
         while True:
-            # Readline in background thread so async queues never block
             user_input = await asyncio.to_thread(input, "vagar> ")
-            if user_input.strip().lower() in ["exit", "quit"]:
+            raw = user_input.strip()
+            if not raw:
+                continue
+            if raw.lower() in ["exit", "quit"]:
                 break
-            await handle_input(user_input, supervisor, claw, evolver)
+            if raw == "!list":
+                print(f"\n[Loaded Skills]: {list(claw.registry.keys())}\n")
+                continue
+
+            await process_intent(raw, router, supervisor, claw, evolver)
     finally:
         worker_task.cancel()
-        print("\n[Vagar] Supervisor shut down.")
+        print("\n[Vagar] Supervisor offline.")
 
 if __name__ == "__main__":
     asyncio.run(main())
