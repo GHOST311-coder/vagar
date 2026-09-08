@@ -23,6 +23,7 @@ async def main():
         sentry = VagarSentry(
             check_fn=claw.registry["system_memory_usage"],
             alert_fn=claw.registry["send_notification"],
+            process_fn=claw.registry.get("top_memory_processes"),
             threshold_pct=85.0,
             interval=60
         )
