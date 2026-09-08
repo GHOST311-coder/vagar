@@ -1,25 +1,28 @@
 import subprocess
 import socket
 
-def network_recon(target_ip: str = "127.0.0.1"):
-    """Performs network interface inspection and basic connectivity checks."""
+def network_recon():
+    """Performs basic network recon including internet connectivity and local port check."""
     results = {}
+    
+    # Check internet connectivity via ping
     try:
-        # Get active network interfaces
-        ifconfig_res = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5)
-        results["interfaces"] = ifconfig_res.stdout if ifconfig_res.returncode == 0 else "ifconfig unavailable"
-        
-        # Check target reachability on common ports
-        open_ports = []
-        ports_to_check = [21, 22, 80, 443, 4713, 8080, 11434]
-        for port in ports_to_check:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.2)
-            if s.connect_ex((target_ip, port)) == 0:
-                open_ports.append(port)
-            s.close()
-        results["target_open_ports"] = open_ports
-        
-        return {"status": "success", "recon": results}
+        res = subprocess.run(["ping", "-c", "1", "8.8.8.8"], capture_output=True, text=True, timeout=3)
+        results["internet_ping"] = "success" if res.returncode == 0 else "failed"
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        results["internet_ping"] = {"error": str(e)}
+        
+    # Check local port status (e.g., localhost port 80 or similar)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1)
+        result = s.connect_ex(('127.0.0.1', 80))
+        results["local_port_80"] = "open" if result == 0 else "closed"
+        s.close()
+    except Exception as e:
+        results["local_port_80"] = {"error": str(e)}
+        
+    return {"status": "success", "network_recon": results}
+
+if __name__ == "__main__":
+    print(network_recon())
