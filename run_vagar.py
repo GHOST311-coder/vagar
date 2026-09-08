@@ -71,7 +71,9 @@ async def main():
             matched_skill = None
             lowered = user_input.lower()
 
-            if any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
+            if any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer", "memory consumers"]) and any("top_memory_processes" in s for s in available):
+                matched_skill = "top_memory_processes"
+            elif any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
                 matched_skill = next(s for s in available if "health" in s)
             elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and "create" not in lowered and any("subnet" in s for s in available):
                 matched_skill = next(s for s in available if "subnet" in s)
@@ -79,7 +81,7 @@ async def main():
                 matched_skill = next(s for s in available if "port" in s)
             elif any(w in lowered for w in ["notify", "notification", "alert"]) and "create" not in lowered and any("notification" in s for s in available):
                 matched_skill = next(s for s in available if "notification" in s)
-            elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
+            elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["create", "make", "build", "why", "is", "should", "explain", "safe", "top", "process", "processes"]) and any("memory" in s for s in available):
                 matched_skill = next(s for s in available if "memory" in s)
             elif "uptime" in lowered and "create" not in lowered and any("uptime" in s for s in available):
                 matched_skill = next(s for s in available if "uptime" in s)
