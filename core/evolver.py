@@ -1,71 +1,62 @@
+import os
+import importlib.util
 import json
-import re
-import requests
-from core.skillclaw import SkillClaw
+import urllib.request
 
 class SkillEvolver:
-    def __init__(self, skillclaw: SkillClaw, ollama_url: str = "http://127.0.0.1:11434", model: str = "qwen2.5-coder:1.5b"):
-        self.claw = skillclaw
-        self.ollama_url = f"{ollama_url}/api/generate"
-        self.model = model
+    """Dynamically synthesizes new Python tool modules, runs validation dry-runs, and hot-loads them into SkillClaw."""
+    def __init__(self, skill_claw, tools_dir="tools", model_name="qwen2.5:latest", ollama_host="http://127.0.0.1:11434"):
+        self.skill_claw = skill_claw
+        self.tools_dir = tools_dir
+        self.model_name = model_name
+        self.ollama_host = ollama_host
+        os.makedirs(self.tools_dir, exist_ok=True)
 
-    def clean_code(self, raw_response: str) -> str:
-        match = re.search(r"```(?:python)?(.*?)```", raw_response, re.DOTALL)
-        code = match.group(1).strip() if match else raw_response.strip()
+    def generate_tool(self, tool_name: str, description: str):
+        prompt = f"""Write a Python function named '{tool_name}' that performs the following task: {description}.
+Requirements:
+- Return the result as a dictionary or string.
+- Handle all exceptions (like FileNotFoundError, socket errors, etc.) gracefully inside the function and return a dictionary with error info if something fails.
+- Do NOT include any markdown formatting blocks like ```python or ```. Output ONLY raw executable Python code.
+- Ensure all string parsing uses safe methods (e.g., stripping units like 'kB' or checking list lengths before indexing)."""
 
-        preamble = (
-            "import os\n"
-            "import sys\n"
-            "import time\n"
-            "import socket\n"
-            "import shutil\n"
-            "import subprocess\n"
-            "import re\n"
-        )
-        if not code.startswith("import"):
-            code = preamble + "\n" + code
-        return code
-
-    def generate_tool(self, tool_name: str, objective: str, max_retries: int = 3) -> bool:
-        base_prompt = (
-            f"You are SkillClaw for Android Termux.\n"
-            f"Write a standalone Python script for tool: '{tool_name}'.\n"
-            f"Objective: {objective}\n\n"
-            "REQUIREMENTS:\n"
-            "1. Entrypoint: def run(**kwargs) -> dict:\n"
-            "2. Return a dict with actual calculated values. Never return an empty dict.\n"
-            "3. For RAM/Memory on Android, parse `/proc/meminfo`.\n"
-            "4. For Uptime, use `time.clock_gettime(time.CLOCK_BOOTTIME)`.\n"
-            "5. For Local IP, use standard UDP socket connection to 8.8.8.8:80.\n"
-            "6. Output ONLY executable python code in ```python ``` blocks."
-        )
-
-        error_context = ""
-        for attempt in range(1, max_retries + 1):
-            full_prompt = base_prompt
-            if error_context:
-                full_prompt += f"\nCRITICAL FIX: Previous attempt failed:\n{error_context}\nFix it."
-
+        for attempt in range(3):
             try:
-                res = requests.post(
-                    self.ollama_url,
-                    json={"model": self.model, "prompt": full_prompt, "stream": False},
-                    timeout=180.0
+                req = urllib.request.Request(
+                    f"{self.ollama_host}/api/generate",
+                    data=json.dumps({
+                        "model": self.model_name,
+                        "prompt": prompt,
+                        "stream": False
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}
                 )
-                if res.status_code != 200:
-                    return False
+                with urllib.request.urlopen(req, timeout=180) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    code = data.get("response", "").strip()
+                    if code.startswith("```"):
+                        code = code.split("\n", 1)[1]
+                    if code.endswith("```"):
+                        code = code.rsplit("\n", 1)[0]
+                    code = code.strip()
 
-                code = self.clean_code(res.json().get("response", ""))
-                success, msg = self.claw.register_tool_from_code(tool_name, code)
-                if success:
-                    print(f"[Evolver] Skill '{tool_name}' verified and hot-reloaded on attempt {attempt}.")
-                    return True
-                else:
-                    print(f"[Evolver] Attempt {attempt} failed: {msg}")
-                    error_context = msg
+                    file_path = os.path.join(self.tools_dir, f"{tool_name}.py")
+                    with open(file_path, "w") as f:
+                        f.write(code)
 
+                    # Dry run validation
+                    spec = importlib.util.spec_from_file_location(tool_name, file_path)
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+
+                    if hasattr(mod, tool_name):
+                        func = getattr(mod, tool_name)
+                        # Quick sanity check execution
+                        func()
+                        self.skill_claw.register_dynamic_tool(tool_name, func)
+                        print(f"[Evolver] Successfully synthesized and loaded tool: {tool_name}")
+                        return True
             except Exception as e:
-                print(f"[Evolver] Error: {e}")
-                return False
-
+                print(f"[Evolver] Attempt {attempt + 1} failed: {e}")
+        print(f"[Evolver] Failed to evolve tool '{tool_name}' after 3 attempts.")
         return False
