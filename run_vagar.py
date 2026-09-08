@@ -2,66 +2,42 @@ import asyncio
 import sys
 import uuid
 from core.supervisor import VagarSupervisor
-from agents.ultron import UltronWorker
-from agents.hermes import HermesRelay
-from agents.jarvis import JarvisCognition
 from core.skillclaw import SkillClaw
 from core.evolver import SkillEvolver
 from core.router import IntentRouter
 from core.sentry import VagarSentry
 from tools.voice_engine import speak, listen
+from agents.jarvis import JarvisCognition
+from tools.telephony import telephony_call, sms_send
 
 async def main():
     supervisor = VagarSupervisor()
-    worker = UltronWorker(supervisor)
     claw = SkillClaw()
     evolver = SkillEvolver(claw)
     router = IntentRouter()
-    hermes = HermesRelay(ledger=supervisor.ledger)
     jarvis = JarvisCognition()
 
-    # Launch Ultron async execution engine
-    asyncio.create_task(worker.run_worker_loop())
-
-    # Launch Vagar Sentry monitoring loop linked to Hermes & SkillClaw
-    if "system_memory_usage" in claw.registry:
-        def sentry_alert(title, msg):
-            hermes.notify(title, msg)
-            if "send_notification" in claw.registry:
-                claw.execute_skill("send_notification", title=title, content=msg)
-
-        sentry = VagarSentry(
-            check_fn=claw.registry["system_memory_usage"],
-            alert_fn=sentry_alert,
-            process_fn=claw.registry.get("top_memory_processes"),
-            cleanup_fn=claw.registry.get("sweep_cache"),
-            report_fn=claw.registry.get("generate_diagnostic_report"),
-            threshold_pct=85.0,
-            interval=60,
-            report_interval=3600
-        )
-        asyncio.create_task(sentry.run_loop())
+    # Register telephony directly into SkillClaw if not already present
+    if "telephony_call" not in claw.registry:
+        claw.registry["telephony_call"] = telephony_call
+    if "sms_send" not in claw.registry:
+        claw.registry["sms_send"] = sms_send
 
     print("==================================================")
-    print("      VAGAR AUTONOMOUS INTENT ARCHITECTURE        ")
-    print(" Core Agents: [Jarvis: Cognition]                 ")
-    print("              [Ultron: Execution]                 ")
-    print("              [Hermes: Messaging & Relay]         ")
+    print("           VAGAR JARVIS SUPERVISOR                ")
     print(" Modes:                                           ")
     print("   'listen' or '!voice' -> Single voice command   ")
     print("   '!loop'              -> Hands-free voice loop  ")
     print(" Manual overrides: !cmd, !skill, !list, !history  ")
     print("==================================================")
 
-    hermes.notify("System Status", "Vagar Trinity online: Jarvis, Ultron, and Hermes active.")
-    speak("Vagar initialized. Jarvis, Ultron, and Hermes operational.")
-
+    speak("Jarvis online and ready.")
     continuous_mode = False
 
     while True:
         try:
             if continuous_mode:
-                print("\n[Vagar Hands-Free]: Listening...")
+                print("\n[Jarvis Hands-Free]: Listening...")
                 voice_data = await asyncio.to_thread(listen)
                 user_input = voice_data.get("transcript", "").strip()
                 if not user_input:
@@ -79,9 +55,8 @@ async def main():
                     continue
 
             if user_input.lower() in ["exit", "quit"]:
-                speak("Supervisor powering down.")
-                hermes.notify("System Status", "Vagar supervisor shutting down.")
-                print("[Vagar] Supervisor offline.")
+                speak("Jarvis powering down.")
+                print("[Jarvis] Offline.")
                 sys.exit(0)
 
             if user_input.lower() == "!loop":
@@ -100,27 +75,22 @@ async def main():
                 print(f"[Heard]: \"{transcript}\"")
                 user_input = transcript
 
-            # Manual Ultron Execution
             if user_input.startswith("!cmd "):
                 shell_cmd = user_input.split(" ", 1)[1].strip()
-                print(f"[Ultron Dispatching]: {shell_cmd}")
+                print(f"[Jarvis Executing]: {shell_cmd}")
                 res = await supervisor.dispatch(shell_cmd)
-                stdout = res.get("stdout", "")
-                stderr = res.get("stderr", "")
-                if stdout:
-                    print(f"[Ultron Output]:\n{stdout}")
-                if stderr:
-                    print(f"[Ultron Error]:\n{stderr}")
-                hermes.broadcast("ultron", "shell_exec", {"cmd": shell_cmd, "rc": res.get("returncode", 0)})
+                if res.get("stdout"):
+                    print(f"[Output]:\n{res['stdout']}")
+                if res.get("stderr"):
+                    print(f"[Error]:\n{res['stderr']}")
                 continue
 
             if user_input == "!list":
-                print(f"[Skills Available]: {list(claw.registry.keys())}")
-                print(f"[Agents Active]: Jarvis (Cognitive), Ultron (Execution), Hermes (Relay)")
+                print(f"[Active Skills]: {list(claw.registry.keys())}")
                 continue
 
             if user_input == "!history":
-                print("[Recent Task History]:")
+                print("[Recent History]:")
                 print(supervisor.ledger.get_recent_context(limit=5))
                 continue
 
@@ -129,109 +99,49 @@ async def main():
                 if skill_name in claw.registry:
                     res = claw.execute_skill(skill_name)
                     print(f"[Skill Result]:\n{res}")
-                    supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", skill_name, 0, str(res), "")
                 else:
                     print(f"[Error]: Skill '{skill_name}' not found.")
                 continue
 
             available = list(claw.registry.keys())
-            matched_skill = None
             lowered = user_input.lower()
 
             if lowered.startswith("create a tool") or lowered.startswith("create tool"):
                 obj = user_input.split("tool", 1)[1].replace("to", "").strip()
                 tool_slug = "_".join(obj.split()[:4]).lower()
-                speak(f"Jarvis synthesizing tool {tool_slug}")
-                print(f"[Jarvis] Evolving new skill '{tool_slug}' via SkillClaw...")
+                speak(f"Synthesizing tool {tool_slug}")
+                print(f"[Jarvis] Evolving new skill '{tool_slug}'...")
                 evolver.generate_tool(tool_slug, user_input)
-                hermes.notify("Tool Synthesized", f"SkillClaw created tool: {tool_slug}")
                 continue
 
-            # SkillClaw Fast Path
-            if any(w in lowered for w in ["ping", "latency", "connectivity", "internet"]) and "network_ping_latency" in available:
+            # Fast path routing for core tools
+            matched_skill = None
+            if "ping" in lowered and "network_ping_latency" in available:
                 matched_skill = "network_ping_latency"
-            elif any(w in lowered for w in ["read log", "read logs", "show logs", "view logs", "diagnostic log", "recent diagnostic"]) and "read_recent_diagnostic_logs" in available:
-                matched_skill = "read_recent_diagnostic_logs"
-            elif any(w in lowered for w in ["log report", "generate report", "save report", "take snapshot"]) and not any(w in lowered for w in ["compare", "difference", "between", "read", "last"]) and "generate_diagnostic_report" in available:
-                matched_skill = "generate_diagnostic_report"
-            elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer"]) and "top_memory_processes" in available:
-                matched_skill = "top_memory_processes"
-            elif any(w in lowered for w in ["clean", "sweep", "cache", "temp"]) and "sweep_cache" in available:
+            elif "memory" in lowered and "system_memory_usage" in available:
+                matched_skill = "system_memory_usage"
+            elif "clean" in lowered and "sweep_cache" in available:
                 matched_skill = "sweep_cache"
-            elif any(w in lowered for w in ["cpu", "load", "processor"]) and any("cpu" in s for s in available):
-                matched_skill = next(s for s in available if "cpu" in s)
-            elif any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
-                matched_skill = next(s for s in available if "health" in s)
-            elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and any("subnet" in s for s in available):
-                matched_skill = next(s for s in available if "subnet" in s)
-            elif any(w in lowered for w in ["gateway", "interface", "local ip"]) and "network_interface_ips_gateway" in available:
-                matched_skill = "network_interface_ips_gateway"
-            elif any(w in lowered for w in ["port", "ports"]) and any("port" in s for s in available):
-                matched_skill = "port_scanner" if "port_scanner" in available else next(s for s in available if "port" in s)
-            elif any(w in lowered for w in ["notify", "notification", "alert"]):
-                hermes.notify("Voice Alert", user_input)
-                speak("Notification sent.")
-                continue
-            elif ("ram" in lowered or "memory" in lowered) and not any(w in lowered for w in ["why", "is", "should", "explain", "safe"]) and any("memory" in s for s in available):
-                matched_skill = next(s for s in available if "memory" in s)
-            elif "uptime" in lowered and any("uptime" in s for s in available):
-                matched_skill = next(s for s in available if "uptime" in s)
+            elif "storage" in lowered and "check_srage_usage" in available:
+                matched_skill = "check_srage_usage"
 
             if matched_skill:
                 res = claw.execute_skill(matched_skill)
-                print(f"[{matched_skill} Result]:")
-                if isinstance(res, dict):
-                    for k, v in res.items():
-                        print(f"  {k}: {v}")
-                    if "avg_latency_ms" in res and res["avg_latency_ms"] is not None:
-                        speak(f"Average latency is {res['avg_latency_ms']} milliseconds.")
-                    elif "memory_usage_pct" in res:
-                        speak(f"Memory usage is at {res['memory_usage_pct']} percent.")
-                    elif "free_ram_gb" in res:
-                        speak(f"Free memory is {res['free_ram_gb']} gigabytes.")
-                    elif "status" in res:
-                        speak(f"Status: {res['status']}.")
-                else:
-                    print(f"  {res}")
-                    speak(str(res))
-                supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
-                hermes.broadcast("skillclaw", matched_skill, {"result": str(res)})
+                print(f"[{matched_skill} Result]: {res}")
+                speak(f"Executed {matched_skill}.")
                 continue
 
-            # Jarvis Cognitive Fallback
-            history = supervisor.ledger.get_recent_context(limit=3)
-            decision = jarvis.route_intent(user_input, router=router, available_skills=available, history=history)
-            intent = decision.get("intent", "shell_exec")
-            target = decision.get("target", user_input)
-
-            if intent == "answer":
-                resp = decision.get("response", "Understood.")
-                print(f"[Jarvis]: {resp}")
-                speak(resp)
-
-            elif intent == "skill_exec" and target in claw.registry:
-                res = claw.execute_skill(target)
-                print(f"[{target} Result]:")
-                for k, v in res.items():
-                    print(f"  {k}: {v}")
-                speak("Skill execution finished.")
-                supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", target, 0, str(res), "")
-                hermes.broadcast("jarvis", "skill_exec", {"skill": target, "result": str(res)})
-
+            # General Cognitive Processing via Jarvis Local Brain
+            response = jarvis.query_local_brain(user_input)
+            if response:
+                print(f"[Jarvis]: {response}")
+                speak(response)
             else:
-                print(f"[Jarvis -> Ultron Executing]: {user_input}")
                 res = await supervisor.dispatch(user_input)
-                stdout = res.get("stdout", "")
-                stderr = res.get("stderr", "")
-                if stdout:
-                    print(f"[Ultron Output]:\n{stdout}")
-                if stderr:
-                    print(f"[Ultron Error]:\n{stderr}")
-                speak("Ultron completed task.")
-                hermes.broadcast("ultron", "direct_dispatch", {"task": user_input, "rc": res.get("returncode", 0)})
+                print(f"[Output]:\n{res.get('stdout', '')}")
 
         except (KeyboardInterrupt, EOFError):
-            print("\n[Vagar] Shutting down.")
+            print("\n[Jarvis] Shutting down.")
             break
 
 if __name__ == "__main__":
