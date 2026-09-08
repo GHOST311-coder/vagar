@@ -25,8 +25,10 @@ async def main():
             alert_fn=claw.registry["send_notification"],
             process_fn=claw.registry.get("top_memory_processes"),
             cleanup_fn=claw.registry.get("sweep_cache"),
+            report_fn=claw.registry.get("generate_diagnostic_report"),
             threshold_pct=85.0,
-            interval=60
+            interval=60,
+            report_interval=3600
         )
         asyncio.create_task(sentry.run_loop())
 
