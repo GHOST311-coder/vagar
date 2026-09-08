@@ -108,7 +108,10 @@ async def main():
 
             if lowered.startswith("create a tool") or lowered.startswith("create tool"):
                 obj = user_input.split("tool", 1)[1].replace("to", "").strip()
-                tool_slug = "_".join(obj.split()[:4]).lower()
+                raw_slug = "_".join(obj.split()[:4]).lower()
+                tool_slug = re.sub(r'[^a-zA-Z0-9_]', '_', raw_slug)
+                if tool_slug and tool_slug[0].isdigit():
+                    tool_slug = "tool_" + tool_slug
                 speak(f"Synthesizing tool {tool_slug}")
                 print(f"[Jarvis] Evolving new skill '{tool_slug}'...")
                 evolver.generate_tool(tool_slug, user_input)
