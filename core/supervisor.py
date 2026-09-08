@@ -6,6 +6,7 @@ from core.ledger import ExecutionLedger
 class VagarSupervisor:
     def __init__(self):
         self.ledger = ExecutionLedger()
+        self.queue = asyncio.Queue()
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     async def dispatch(self, command: str, timeout: int = 15):
