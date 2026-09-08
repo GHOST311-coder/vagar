@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 data/*.db
 .venv/
+ledger.db
+__pycache__/
+*.pyc
