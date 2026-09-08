@@ -1,16 +1,16 @@
 import os
 import shutil
 
-def storage_manager(file_to_delete: str = ""):
-    """Scans for large files >50MB or deletes a specified file path."""
+def storage_manager(path_arg: str = ""):
+    """Scans for large files or deletes a specified path passed directly."""
     try:
-        if file_to_delete:
-            target = os.path.expanduser(file_to_delete)
+        if path_arg:
+            target = os.path.expanduser(path_arg)
             if os.path.exists(target):
                 size = os.path.getsize(target) / (1024 * 1024)
                 os.remove(target)
-                return {"status": "success", "message": f"Deleted {target}, freed {round(size, 2)} MB."}
-            return {"status": "error", "message": f"File not found: {target}"}
+                return {"status": "success", "message": f"Successfully deleted {target} (Freed {round(size, 2)} MB)."}
+            return {"status": "error", "message": f"Path not found: {target}"}
             
         large_files = []
         for root, dirs, files in os.walk("/sdcard"):
@@ -26,6 +26,6 @@ def storage_manager(file_to_delete: str = ""):
                     continue
                     
         large_files = sorted(large_files, key=lambda x: x["size_mb"], reverse=True)[:15]
-        return {"status": "success", "large_files": large_files, "instruction": "To delete a file, invoke with the exact path."}
+        return {"status": "success", "large_files": large_files, "instruction": "To delete, run: !skill storage_manager /sdcard/path/to/file"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
