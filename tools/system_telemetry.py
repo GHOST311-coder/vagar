@@ -2,7 +2,7 @@ import subprocess
 import json
 import os
 
-def run():
+def system_telemetry():
     """Gathers system telemetry including battery and storage metrics."""
     telemetry = {}
     
@@ -31,4 +31,4 @@ def run():
     return {"status": "success", "telemetry": telemetry}
 
 if __name__ == "__main__":
-    print(run())
+    print(system_telemetry())
