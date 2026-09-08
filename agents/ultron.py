@@ -1,55 +1,76 @@
 import asyncio
-import shlex
-from typing import Dict, Any
-from core.supervisor import VagarSupervisor, AgentTask
+import os
+import uuid
+from pathlib import Path
+from core.supervisor import VagarSupervisor
 
 class UltronWorker:
-    def __init__(self, supervisor: VagarSupervisor, default_timeout: float = 30.0):
+    def __init__(self, supervisor: VagarSupervisor, default_timeout: int = 15, sandbox_dir: str = "sandbox"):
         self.supervisor = supervisor
         self.timeout = default_timeout
+        self.sandbox_path = Path(sandbox_dir).resolve()
+        self.sandbox_path.mkdir(exist_ok=True)
 
-    async def run_worker_loop(self):
-        while True:
-            task: AgentTask = await self.supervisor.queue.get()
-            try:
-                result = await self._execute_command(task.command)
-                self.supervisor.ledger.log(
-                    task_id=task.task_id,
-                    agent=task.agent,
-                    command=task.command,
-                    exit_code=result["exit_code"],
-                    stdout=result["stdout"],
-                    stderr=result["stderr"]
-                )
-                task.future.set_result(result)
-            except Exception as e:
-                task.future.set_result({"status": "error", "error": str(e), "exit_code": -1})
-            finally:
-                self.supervisor.queue.task_done()
-
-    async def _execute_command(self, command: str) -> Dict[str, Any]:
-        parts = shlex.split(command)
-        if not parts:
-            return {"exit_code": -1, "stdout": "", "stderr": "Empty command"}
-
-        proc = await asyncio.create_subprocess_exec(
-            parts[0],
-            *parts[1:],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+    async def execute_task(self, task) -> None:
+        stdout_str = ""
+        stderr_str = ""
+        exit_code = 1
+        task_id = getattr(task, "id", str(uuid.uuid4())[:8])
 
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout)
-            return {
-                "exit_code": proc.returncode,
-                "stdout": stdout.decode("utf-8", errors="replace").strip()[:1000],
-                "stderr": stderr.decode("utf-8", errors="replace").strip()[:500]
-            }
+            process = await asyncio.create_subprocess_shell(
+                task.command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.sandbox_path),
+                env=os.environ.copy()
+            )
+
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.timeout
+            )
+            stdout_str = stdout_bytes.decode(errors="replace").strip()
+            stderr_str = stderr_bytes.decode(errors="replace").strip()
+            exit_code = process.returncode if process.returncode is not None else 0
+
         except asyncio.TimeoutError:
             try:
-                proc.kill()
-                await proc.wait()
-            except ProcessLookupError:
+                process.kill()
+                await process.wait()
+            except Exception:
                 pass
-            return {"exit_code": -1, "stdout": "", "stderr": f"Command timed out after {self.timeout}s"}
+            stderr_str = f"[Ultron Error] Execution timed out after {self.timeout} seconds."
+            exit_code = 124
+
+        except Exception as e:
+            stderr_str = f"[Ultron Internal Failure]: {type(e).__name__} - {str(e)}"
+            exit_code = 1
+
+        try:
+            self.supervisor.ledger.log(
+                task_id=task_id,
+                agent=task.agent,
+                command=task.command,
+                exit_code=exit_code,
+                stdout=stdout_str,
+                stderr=stderr_str
+            )
+        except Exception:
+            pass
+
+        result_payload = {
+            "task_id": task_id,
+            "exit_code": exit_code,
+            "stdout": stdout_str,
+            "stderr": stderr_str
+        }
+        if not task.future.done():
+            task.future.set_result(result_payload)
+
+    async def run_worker_loop(self) -> None:
+        while True:
+            task = await self.supervisor.queue.get()
+            if task.agent == "ultron":
+                await self.execute_task(task)
+            self.supervisor.queue.task_done()
