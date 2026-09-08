@@ -6,6 +6,7 @@ from agents.ultron import UltronWorker
 from core.skillclaw import SkillClaw
 from core.evolver import SkillEvolver
 from core.router import IntentRouter
+from core.sentry import VagarSentry
 
 async def main():
     supervisor = VagarSupervisor()
@@ -14,7 +15,18 @@ async def main():
     evolver = SkillEvolver(claw)
     router = IntentRouter()
 
+    # Launch Ultron worker loop
     asyncio.create_task(worker.run_worker_loop())
+
+    # Launch background Sentry watchdog
+    if "system_memory_usage" in claw.registry and "send_notification" in claw.registry:
+        sentry = VagarSentry(
+            check_fn=claw.registry["system_memory_usage"],
+            alert_fn=claw.registry["send_notification"],
+            threshold_pct=85.0,
+            interval=60
+        )
+        asyncio.create_task(sentry.run_loop())
 
     print("==================================================")
     print("             VAGAR INTENT SUPERVISOR              ")
@@ -59,7 +71,6 @@ async def main():
             matched_skill = None
             lowered = user_input.lower()
 
-            # Fast-path matching
             if any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
                 matched_skill = next(s for s in available if "health" in s)
             elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and "create" not in lowered and any("subnet" in s for s in available):
@@ -84,7 +95,6 @@ async def main():
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
                 continue
 
-            # Route generic or contextual queries
             history = supervisor.ledger.get_recent_context(limit=3)
             decision = router.route(user_input, available_skills=available, history_context=history)
             intent = decision.get("intent", "shell_exec")
