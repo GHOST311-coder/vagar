@@ -2,10 +2,14 @@ import os
 import sys
 
 def run(**kwargs):
-    # Direct relative imports from the tools package
     sys.path.insert(0, os.path.dirname(__file__))
-    
     report = {}
+
+    try:
+        import cpu_telemetry
+        report["cpu"] = cpu_telemetry.run()
+    except Exception as e:
+        report["cpu"] = {"error": str(e)}
 
     try:
         import system_memory_usage

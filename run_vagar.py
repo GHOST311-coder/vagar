@@ -76,6 +76,8 @@ async def main():
                 matched_skill = "top_memory_processes"
             elif any(w in lowered for w in ["health", "full check"]) and any("health" in s for s in available):
                 matched_skill = next(s for s in available if "health" in s)
+            elif any(w in lowered for w in ["cpu", "load", "processor"]) and not any(w in lowered for w in ["create", "make", "build"]) and any("cpu" in s for s in available):
+                matched_skill = next(s for s in available if "cpu" in s)
             elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and "create" not in lowered and any("subnet" in s for s in available):
                 matched_skill = next(s for s in available if "subnet" in s)
             elif any(w in lowered for w in ["port", "ports"]) and "create" not in lowered and any("port" in s for s in available):
