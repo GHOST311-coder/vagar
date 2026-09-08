@@ -15,10 +15,8 @@ async def main():
     evolver = SkillEvolver(claw)
     router = IntentRouter()
 
-    # Launch Ultron worker loop
     asyncio.create_task(worker.run_worker_loop())
 
-    # Launch background Sentry watchdog
     if "system_memory_usage" in claw.registry and "send_notification" in claw.registry:
         sentry = VagarSentry(
             check_fn=claw.registry["system_memory_usage"],
@@ -37,6 +35,7 @@ async def main():
     print(" Speak/Type naturally in plain English:          ")
     print("   - 'How much RAM is free?'                      ")
     print("   - 'Full health check'                          ")
+    print("   - 'Check internet latency'                     ")
     print("   - 'Read diagnostic logs'                       ")
     print(" Manual overrides: !cmd, !skill, !list, !history  ")
     print("==================================================")
@@ -96,10 +95,12 @@ async def main():
                 evolver.generate_tool(tool_slug, user_input)
                 continue
 
-            # Fast-path skill routing
-            if any(w in lowered for w in ["read log", "read logs", "show logs", "view logs", "summarize the last", "recent diagnostic"]) and "read_recent_diagnostic_logs" in available:
+            # Fast-path keyword routing
+            if any(w in lowered for w in ["ping", "latency", "connectivity", "internet"]) and "network_ping_latency" in available:
+                matched_skill = "network_ping_latency"
+            elif any(w in lowered for w in ["read log", "read logs", "show logs", "view logs", "diagnostic log", "recent diagnostic"]) and "read_recent_diagnostic_logs" in available:
                 matched_skill = "read_recent_diagnostic_logs"
-            elif any(w in lowered for w in ["log report", "generate report", "save report", "take snapshot"]) and not any(w in lowered for w in ["compare", "difference", "between", "read"]) and "generate_diagnostic_report" in available:
+            elif any(w in lowered for w in ["log report", "generate report", "save report", "take snapshot"]) and not any(w in lowered for w in ["compare", "difference", "between", "read", "last"]) and "generate_diagnostic_report" in available:
                 matched_skill = "generate_diagnostic_report"
             elif any(w in lowered for w in ["top process", "top processes", "heavy process", "memory consumer"]) and "top_memory_processes" in available:
                 matched_skill = "top_memory_processes"
@@ -111,6 +112,8 @@ async def main():
                 matched_skill = next(s for s in available if "health" in s)
             elif any(w in lowered for w in ["subnet", "hosts", "devices"]) and any("subnet" in s for s in available):
                 matched_skill = next(s for s in available if "subnet" in s)
+            elif any(w in lowered for w in ["gateway", "interface", "local ip"]) and "network_interface_ips_gateway" in available:
+                matched_skill = "network_interface_ips_gateway"
             elif any(w in lowered for w in ["port", "ports"]) and any("port" in s for s in available):
                 matched_skill = next(s for s in available if "port" in s)
             elif any(w in lowered for w in ["notify", "notification", "alert"]) and any("notification" in s for s in available):
@@ -131,7 +134,7 @@ async def main():
                 supervisor.ledger.log(str(uuid.uuid4())[:8], "skillclaw", matched_skill, 0, str(res), "")
                 continue
 
-            # Route natural language reasoning or shell fallback
+            # Natural language router fallback
             history = supervisor.ledger.get_recent_context(limit=3)
             decision = router.route(user_input, available_skills=available, history_context=history)
             intent = decision.get("intent", "shell_exec")
