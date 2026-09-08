@@ -1,57 +1,73 @@
 import ast
-import importlib
-import sys
+import importlib.util
 from pathlib import Path
-from typing import Callable, Dict, Any, Tuple
+from typing import Dict, Any, Tuple
 
 class SkillClaw:
     def __init__(self, tools_dir: str = "tools"):
-        self.tools_path = Path(tools_dir)
+        self.tools_path = Path(tools_dir).resolve()
         self.tools_path.mkdir(exist_ok=True)
-        self.registry: Dict[str, Callable] = {}
+        self.registry: Dict[str, Any] = {}
+        self.load_existing_tools()
 
-    def validate_syntax(self, code_str: str) -> Tuple[bool, str]:
+    def load_existing_tools(self) -> None:
+        for py_file in self.tools_path.glob("*.py"):
+            if py_file.name.startswith("__"):
+                continue
+            skill_name = py_file.stem
+            try:
+                spec = importlib.util.spec_from_file_location(skill_name, py_file)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    if hasattr(module, "run") and callable(module.run):
+                        self.registry[skill_name] = module.run
+            except Exception as e:
+                print(f"[SkillClaw] Failed to preload {skill_name}: {e}")
+
+    def validate_ast(self, code_str: str) -> Tuple[bool, str]:
         try:
-            ast.parse(code_str)
-            return True, "Syntax valid"
+            tree = ast.parse(code_str)
+            has_run = any(
+                isinstance(node, ast.FunctionDef) and node.name == "run"
+                for node in ast.walk(tree)
+            )
+            if not has_run:
+                return False, "Validation error: Missing 'def run(**kwargs):' entrypoint function."
+            return True, ""
         except SyntaxError as e:
-            return False, f"AST Syntax Error at line {e.lineno}: {e.msg}"
+            return False, f"SyntaxError during AST check: {e}"
 
     def register_tool_from_code(self, tool_name: str, code_str: str) -> Tuple[bool, str]:
-        is_valid, message = self.validate_syntax(code_str)
-        if not is_valid:
-            return False, message
+        valid, err = self.validate_ast(code_str)
+        if not valid:
+            return False, err
 
-        tool_file = self.tools_path / f"{tool_name}.py"
-        tool_file.write_text(code_str)
-
-        module_name = f"tools.{tool_name}"
+        file_path = self.tools_path / f"{tool_name}.py"
         try:
-            if module_name in sys.modules:
-                module = importlib.reload(sys.modules[module_name])
-            else:
-                module = importlib.import_module(module_name)
+            file_path.write_text(code_str)
+            spec = importlib.util.spec_from_file_location(tool_name, file_path)
+            if not spec or not spec.loader:
+                return False, "Failed to build module spec"
 
-            if not (hasattr(module, "run") and callable(module.run)):
-                return False, "Module missing mandatory callable entrypoint: 'run(**kwargs)'"
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
 
-            test_run = module.run()
-            if not isinstance(test_run, dict):
-                return False, f"run() must return dict, got {type(test_run).__name__}"
-            if len(test_run) == 0:
-                return False, "Dry-run returned empty dictionary {}. Must populate valid result keys."
-            if "error" in test_run:
-                return False, f"Dry-run caught runtime failure: {test_run.get('error')}"
+            if not hasattr(module, "run") or not callable(module.run):
+                return False, "Module lacks callable run() function"
+
+            dry_run = module.run()
+            if not isinstance(dry_run, dict) or not dry_run:
+                return False, "Runtime dry-run failed: run() must return a non-empty dict."
 
             self.registry[tool_name] = module.run
-            return True, f"Skill '{tool_name}' verified and hot-reloaded."
-
+            return True, ""
         except Exception as e:
-            if tool_file.exists():
-                tool_file.unlink()
-            return False, f"Runtime dry-run failed: {type(e).__name__} - {str(e)}"
+            if file_path.exists():
+                file_path.unlink(missing_ok=True)
+            return False, f"Runtime dry-run failed: {type(e).__name__} - {e}"
 
-    async def execute_skill(self, tool_name: str, **kwargs) -> Any:
+    def execute_skill(self, tool_name: str, **kwargs) -> Dict[str, Any]:
         if tool_name not in self.registry:
-            raise KeyError(f"Skill '{tool_name}' not loaded in registry.")
+            raise KeyError(f"Skill '{tool_name}' not registered.")
         return self.registry[tool_name](**kwargs)

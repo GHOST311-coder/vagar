@@ -11,35 +11,40 @@ class SkillEvolver:
 
     def clean_code(self, raw_response: str) -> str:
         match = re.search(r"```(?:python)?(.*?)```", raw_response, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return raw_response.strip()
+        code = match.group(1).strip() if match else raw_response.strip()
+
+        preamble = (
+            "import os\n"
+            "import sys\n"
+            "import time\n"
+            "import socket\n"
+            "import shutil\n"
+            "import subprocess\n"
+            "import re\n"
+        )
+        if not code.startswith("import"):
+            code = preamble + "\n" + code
+        return code
 
     def generate_tool(self, tool_name: str, objective: str, max_retries: int = 3) -> bool:
         base_prompt = (
-            f"You are SkillClaw, an autonomous Python tool generator for Termux on Android.\n"
-            f"Generate a self-contained Python script for tool: '{tool_name}'.\n"
+            f"You are SkillClaw for Android Termux.\n"
+            f"Write a standalone Python script for tool: '{tool_name}'.\n"
             f"Objective: {objective}\n\n"
             "REQUIREMENTS:\n"
-            "1. Entrypoint MUST be exactly: def run(**kwargs) -> dict:\n"
-            "2. Must return a dict populated ONLY with data relevant to the objective. Never return an empty dict.\n"
-            "3. Import all necessary standard libraries (socket, os, sys, time, shutil).\n"
-            "4. Termux Android Constraints:\n"
-            "   - Do NOT run binary `ip` or access `/proc/net` (they fail or are not installed).\n"
-            "   - For local IP discovery, use standard socket techniques:\n"
-            "     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
-            "     s.connect(('8.8.8.8', 80))\n"
-            "     local_ip = s.getsockname()[0]\n"
-            "     s.close()\n"
-            "   - For uptime, use `time.clock_gettime(time.CLOCK_BOOTTIME)`.\n"
-            "5. Output ONLY clean Python code inside ```python ``` blocks."
+            "1. Entrypoint: def run(**kwargs) -> dict:\n"
+            "2. Return a dict with actual calculated values. Never return an empty dict.\n"
+            "3. For RAM/Memory on Android, parse `/proc/meminfo`.\n"
+            "4. For Uptime, use `time.clock_gettime(time.CLOCK_BOOTTIME)`.\n"
+            "5. For Local IP, use standard UDP socket connection to 8.8.8.8:80.\n"
+            "6. Output ONLY executable python code in ```python ``` blocks."
         )
 
         error_context = ""
         for attempt in range(1, max_retries + 1):
             full_prompt = base_prompt
             if error_context:
-                full_prompt += f"\nCRITICAL FIX: Previous attempt failed with:\n{error_context}\nFix it according to the requirements."
+                full_prompt += f"\nCRITICAL FIX: Previous attempt failed:\n{error_context}\nFix it."
 
             try:
                 res = requests.post(
@@ -48,7 +53,6 @@ class SkillEvolver:
                     timeout=60.0
                 )
                 if res.status_code != 200:
-                    print(f"[Evolver] Ollama HTTP {res.status_code}")
                     return False
 
                 code = self.clean_code(res.json().get("response", ""))
