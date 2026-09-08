@@ -141,8 +141,13 @@ async def main():
                 print(f"[Jarvis]: {response}")
                 speak(response)
             else:
-                res = await supervisor.dispatch(user_input)
-                print(f"[Output]:\n{res.get('stdout', '')}")
+                print("[Jarvis]: I am processing...")
+                response = jarvis.query_local_brain(user_input)
+                if response:
+                    print(f"[Jarvis]: {response}")
+                    speak(response)
+                else:
+                    print("[Jarvis]: No response from local brain.")
 
         except (KeyboardInterrupt, EOFError):
             print("\n[Jarvis] Shutting down.")
