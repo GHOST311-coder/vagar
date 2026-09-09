@@ -3,7 +3,7 @@ import subprocess
 import os
 import json
 
-def vagar_master(skill_name, *args, **kwargs):
+def vagar_master(*args, **kwargs):
     """Unified master dispatcher combining system diagnostics, security tools, and phone API integrations."""
     skills = {
         "process_monitor": _process_monitor,
@@ -15,8 +15,15 @@ def vagar_master(skill_name, *args, **kwargs):
         "phone_contacts": _phone_contacts
     }
     
+    # Determine skill name from positional args or kwargs
+    skill_name = "network_recon"
+    if args and isinstance(args[0], str):
+        skill_name = args[0]
+    elif "skill_name" in kwargs:
+        skill_name = kwargs.get("skill_name")
+        
     if skill_name not in skills:
-        return {"status": "error", "message": f"Skill '{skill_name}' not registered."}
+        return {"status": "error", "message": f"Skill '{skill_name}' not registered. Available: {list(skills.keys())}"}
         
     try:
         return skills[skill_name](*args, **kwargs)
@@ -59,8 +66,6 @@ def _network_recon(*args, **kwargs):
 def _sec_toolkit(*args, **kwargs):
     target = kwargs.get("target", "127.0.0.1")
     ports_str = kwargs.get("ports", "21,22,80,443,8080")
-    if args and isinstance(args[0], str):
-        target = args[0]
     results = {"target": target, "open_ports": [], "banners": {}}
     try:
         port_list = [int(p.strip()) for p in ports_str.split(",")]
