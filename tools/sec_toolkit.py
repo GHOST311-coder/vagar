@@ -1,10 +1,18 @@
-import subprocess
 import socket
 
-def sec_toolkit(target="127.0.0.1", ports="21,22,80,443,8080"):
+def sec_toolkit(*args, **kwargs):
     """Performs lightweight security auditing, port scanning, and banner grabbing."""
+    target = kwargs.get("target", "127.0.0.1")
+    ports_str = kwargs.get("ports", "21,22,80,443,8080")
+    
+    if args and len(args) > 0 and isinstance(args[0], str):
+        target = args[0]
+
     results = {"target": target, "open_ports": [], "banners": {}}
-    port_list = [int(p.strip()) for p in ports.split(",")]
+    try:
+        port_list = [int(p.strip()) for p in ports_str.split(",")]
+    except Exception:
+        port_list = [21, 22, 80, 443, 8080]
     
     for port in port_list:
         try:
