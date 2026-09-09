@@ -24,7 +24,15 @@ def main():
             if cmd.lower() in ["exit", "quit"]:
                 break
             elif cmd.lower() in ["!list", "help", "whoami"]:
-                print("[Vagar]: I am Vagar, your autonomous local operations assistant running on Termux. My capabilities include system diagnostics, network reconnaissance, security auditing via our unified master toolkit, and direct Android device telemetry including SMS, call logs, and contacts.")
+                print("[Vagar]: I am Vagar, your autonomous local operations assistant running on Termux. My capabilities include system diagnostics, network reconnaissance, security auditing via our unified master toolkit, and direct Android device telemetry including SMS, call logs, contacts, and voice input.")
+            elif cmd.lower() in ["listen", "!voice"]:
+                sys.path.append(os.path.abspath("."))
+                try:
+                    import voice_module
+                    res = voice_module.activate_voice()
+                    print(f"[Voice Result]: {res}")
+                except Exception as e:
+                    print(f"[Error activating voice]: {e}")
             elif cmd.startswith("!skill "):
                 parts = cmd.split(" ", 1)
                 skill_name = parts[1].strip() if len(parts) > 1 else ""
