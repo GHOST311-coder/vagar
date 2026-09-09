@@ -1,10 +1,28 @@
-import subprocess
+import socket
+import os
 
 def network_recon():
-    """Performs local network and connectivity reconnaissance checks."""
+    """Performs local network and connectivity reconnaissance checks using pure Python."""
     try:
-        res = subprocess.run(["ip", "addr"], capture_output=True, text=True, timeout=3)
-        return {"status": "success", "network_interfaces": res.stdout.strip()}
+        interfaces = {}
+        if os.path.exists('/sys/class/net/'):
+            for iface in os.listdir('/sys/class/net/'):
+                try:
+                    with open(f'/sys/class/net/{iface}/operstate', 'r') as f:
+                        state = f.read().strip()
+                    interfaces[iface] = {"state": state}
+                except Exception:
+                    pass
+        
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        
+        return {
+            "status": "success", 
+            "hostname": hostname,
+            "local_ip": local_ip,
+            "interfaces": interfaces
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
