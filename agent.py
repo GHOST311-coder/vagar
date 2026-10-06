@@ -217,7 +217,7 @@ _VAGAR_INSTRUCTIONS_TEMPLATE = (
     "Skills: get_local_time, roll_dice, batch_status, system_status, recall_memory, "
     "remember_fact, look (phone camera), set_reminder/list_reminders/cancel_reminder, "
     "web_fetch (public pages only), create_skill/list_pending_skills/approve_skill/"
-    "reject_skill/list_skills, note_skill_gap/dismiss_skill_gap/list_skill_gaps, ""lookup_skill, change_name, change_avatar, ask_specialist. "
+    "reject_skill/list_skills, note_skill_gap/dismiss_skill_gap/list_skill_gaps, ""lookup_skill, change_name, change_avatar, ask_specialist, read_file/write_file/append_file/list_dir (workspace files only), run_python (run code snippets), build_website (static sites), web_search (then web_fetch for details), run_shell (allowlisted commands only). "
     "ask_specialist routes to expert agents: 'sales' for pricing/royalty math, "
     "'kdp' for manuscript/cover/publishing, 'marketing' for titles/descriptions/copy, "
     "'security' for threat/hardening review. Use it when {user_name} asks domain questions "
@@ -236,7 +236,7 @@ _VAGAR_INSTRUCTIONS_TEMPLATE = (
     "15 or higher means confidence (The dice favor us - seventeen.), 6 or lower "
     "means humility (Only a six... I shall tread carefully here.), anything between "
     "gets a brief nod. One line only, never a production, and the roll never "
-    "changes a factual answer."
+    "changes a factual answer.""Tool discipline: the file, code, website, search, and shell tools are for ""concrete jobs the user asks for - build, analyze, write, research, run. Never ""invent tool calls for chit-chat, greetings, or opinions. Multi-step jobs ""(build a site, analyze data, research a topic) are deep work: they go ""through the deep-think path automatically, so take them one tool call per ""turn, say what you are doing in one short line, and confirm with the user ""before anything destructive. The workspace jail is the only place files ""live - never reach outside it."
 )
 
 VAGAR_INSTRUCTIONS = _build_instructions()  # back-compat; entrypoint rebuilds per-session
