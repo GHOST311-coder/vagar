@@ -20,6 +20,7 @@ Talk to it over LiveKit (phone app or browser), and it answers with a natural vo
 - **Speaker verification** — local ECAPA-TDNN voiceprints (embeddings only, never raw audio). Enroll with `python speaker_id.py enroll <name> sample1.wav sample2.wav ...`.
 - **Recurring routines** — plain-English repeat schedules ("every weekday at 7am"); due routines are spoken at the start of a call and reschedule themselves.
 - **Battery monitor** — proactive low/critical battery warnings.
+- **D&D + MTG knowledge** — local offline search over the D&D 5e SRD, MTG Comprehensive Rules, and ~35k cards' oracle text (`knowledge/dnd_mtg/`, built by `fetch_sources.py`; source files not committed).
 - **Local wiki** — `skills/wiki_builder.py` generates a single-file offline wiki from the skills, memory, quests, and agent config. Serve on localhost/tailnet only — never expose it publicly.
 
 ## Requirements
@@ -102,6 +103,7 @@ battery_monitor.py   # Proactive low-battery warnings
 evolving_healer.py   # Journaled, ranked recovery strategies
 routines.py          # Recurring routines (plain-English schedules)
 wiki_builder.py      # Static offline wiki generator
+dnd_mtg.py           # D&D 5e + MTG rules/card lookup (local FTS index)
 │   └── staging/        # Draft skills awaiting your approval (never auto-imported)
 ├── .env.example        # Personalization template
 └── requirements.txt

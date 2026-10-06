@@ -57,3 +57,7 @@ desktop.ini
 routines.json
 wiki.html
 speaker_profiles/
+
+# --- knowledge base downloads (fetched by knowledge/dnd_mtg/fetch_sources.py) ---
+knowledge/dnd_mtg/raw/
+knowledge/dnd_mtg/kb.sqlite
