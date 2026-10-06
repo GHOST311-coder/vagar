@@ -85,3 +85,20 @@ def ensure_data_dir() -> Path:
     """Create the data directory if missing. Returns its path."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     return DATA_DIR
+
+# --- flight recorder (local JSONL run tracing) ---
+FLIGHT_RECORDER_DIR = Path(
+    _env("VAGAR_FLIGHT_LOG_DIR",
+         str(DATA_DIR / "flight-recorder" / "sessions"))
+)
+
+# --- recurring routines ---
+ROUTINES_PATH = DATA_DIR / "routines.json"
+
+# --- vision (YOLOv8 object detection) ---
+# Place yolov8n.pt here (or point VAGAR_YOLO_MODEL at it); weights are
+# downloaded once from the ultralytics release, ~6MB.
+YOLO_MODEL_PATH = Path(
+    _env("VAGAR_YOLO_MODEL", str(VAGAR_HOME / "models" / "yolov8n.pt"))
+)
+

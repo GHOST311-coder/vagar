@@ -984,12 +984,27 @@ def _get_due_reminders() -> list:
     except Exception:
         return []
 
+def _get_due_routines() -> list:
+    """Check recurring routines for due items; reschedules each one that fires."""
+    try:
+        import sys as _rts
+        from pathlib import Path as _rtp
+        _rts.path.insert(0, str(_rtp(__file__).resolve().parent / "skills"))
+        from routines import list_due_routines as _ldrr
+        _res = _ldrr()
+        if "Nothing due" in str(_res):
+            return []
+        return [ln.strip("- ").strip() for ln in str(_res).split("\n")
+                if ln.strip().startswith("-")]
+    except Exception:
+        return []
+
 def _get_briefing() -> str:
     _wx = _get_weather()
     parts = [("Weather in %s: %s." % (WEATHER_LOCATION.split(",")[0], _wx)
               if _wx != "unavailable" else "")]
     parts = [x for x in parts if x]
-    due = _get_due_reminders()
+    due = _get_due_reminders() + _get_due_routines()
     if due:
         parts.append("You have %d due reminder%s: %s." % (
             len(due), "" if len(due) == 1 else "s",

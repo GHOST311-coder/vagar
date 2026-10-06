@@ -20,3 +20,17 @@ httpx>=0.27
 
 # OpenAI-compatible client (used for the local Ollama endpoint)
 openai>=1.0
+
+# System monitoring (battery_monitor skill)
+psutil>=7.0
+
+# Vision: real-time object detection (yolo_watch) + webcam capture (laptop_cam)
+ultralytics>=8.4
+opencv-python>=4.8
+
+# Speaker verification (speaker_id). CPU-only torch recommended:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0
+speechbrain>=1.0
+librosa>=0.10
+soundfile>=0.12
