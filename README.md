@@ -72,11 +72,24 @@ All settings live in `config.py` and resolve from the project directory — no h
 | `VAGAR_USER_FORMAL_NAME` | `sir` | Formal address for greetings |
 | `VAGAR_USER_BIO` | _(generic)_ | 1–2 sentences about you, used in the system prompt |
 | `VAGAR_NAME` | `Vagar` | The assistant's name |
+| `VAGAR_AVATAR_SET` | `spirit` | Avatar set: `spirit` \| `kodama` \| `plush` |
 | `VAGAR_DATA_DIR` | _(project root)_ | Where runtime JSON/MD files live |
 | `VAGAR_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint |
 | `VAGAR_OLLAMA_MODEL` | `qwen2.5:0.5b` | Fast brain |
 | `VAGAR_OLLAMA_DEEP_MODEL` | `qwen2.5:3b` | Deep brain |
 | `VAGAR_KOKORO_VOICE` | `bm_lewis` | TTS voice |
+
+## Make it yours (name + avatar)
+
+Vagar is yours to rename and reskin -- nothing about "Vagar" is hardcoded:
+
+- **Voice agent:** edit `config/assistant.yaml` (`assistant_name`, `avatar_set`), or set
+  `VAGAR_NAME` / `VAGAR_AVATAR_SET` in `.env` (env wins). You can also rename it by voice
+  ("change your name to ..."), which is saved to `identity.json`.
+- **Phone app:** tap the gear icon on the call screen to open Settings. Type any assistant
+  name and pick an avatar set -- Spirit, Kodama, or Plush, all bundled in the app so
+  switching is instant and works offline. "Justin's live" pulls the owner's current set
+  from their laptop server instead.
 
 ## Project structure
 

@@ -1,0 +1,6 @@
+# Vagar public identity config -- copy and make it yours.
+# Environment variables (VAGAR_NAME, VAGAR_AVATAR_SET) override these values.
+# identity.json (created at runtime) overrides the name again when you rename by voice.
+
+assistant_name: Vagar
+avatar_set: spirit   # spirit | kodama | plush  (bundled sets in the phone app)

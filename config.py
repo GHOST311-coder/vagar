@@ -27,7 +27,24 @@ USER_BIO = _env(
     "VAGAR_USER_BIO",
     "They built you. They prefer clear, plain language and direct answers.",
 )
-ASSISTANT_NAME = _env("VAGAR_NAME", "Vagar")
+def _read_simple_yaml(path: Path) -> dict:
+    """Minimal key: value reader (avoids a PyYAML dependency for two keys)."""
+    out: dict = {}
+    try:
+        for _line in path.read_text(encoding="utf-8").splitlines():
+            _line = _line.split("#", 1)[0].strip()
+            if not _line or ":" not in _line:
+                continue
+            _k, _v = _line.split(":", 1)
+            out[_k.strip()] = _v.strip().strip("\"'")
+    except Exception:
+        pass
+    return out
+
+
+_ASSISTANT_YAML = _read_simple_yaml(VAGAR_HOME / "config" / "assistant.yaml")
+ASSISTANT_NAME = _env("VAGAR_NAME", _ASSISTANT_YAML.get("assistant_name", "Vagar"))
+AVATAR_SET = _env("VAGAR_AVATAR_SET", _ASSISTANT_YAML.get("avatar_set", "spirit"))
 
 # --- data directory (runtime JSON/MD files live here) ---
 DATA_DIR = Path(_env("VAGAR_DATA_DIR", str(VAGAR_HOME)))
