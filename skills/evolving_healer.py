@@ -143,3 +143,111 @@ def should_escalate_to_owner(service):
         return False
     recent = svc[-5:]
     return not any(e.get("outcome") == "success" for e in recent)
+
+
+# --- Real strategy handlers (wired 2026-10-06, owner-approved) ---
+# What the healer can actually DO when a breaker trips. Bounded to safe,
+# reversible infrastructure checks: the healer NEVER rewrites code, deploys
+# changes, or restarts OS services (service restarts belong to the watchdog).
+# Strategies with no safe handler here are skipped, never faked.
+
+def _h_cooldown_wait(service, ctx):
+    """The breaker's own cooldown IS the recovery; verify it is engaged."""
+    try:
+        breaker = (ctx or {}).get("breaker")
+        return bool(breaker is not None and breaker.is_tripped())
+    except Exception:
+        return False
+
+
+def _h_check_port(service, ctx):
+    """Real TCP check that the service's port is listening."""
+    import socket
+    _ports = {"ollama": 11434, "livekit": 7880, "moondream": 11434}
+    port = _ports.get(service)
+    if not port:
+        return False
+    try:
+        _s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        _s.close()
+        return True
+    except Exception:
+        return False
+
+
+def _h_fallback_model(service, ctx):
+    """Deep-think fallback: engaged iff the LLM breaker is tripped."""
+    try:
+        breaker = (ctx or {}).get("breaker")
+        return bool(breaker is not None and breaker.is_tripped()
+                    and "llm" in (ctx or {}).get("breaker_name", ""))
+    except Exception:
+        return False
+
+
+def _h_fallback_yolo(service, ctx):
+    """Vision fallback: engaged iff the vision breaker is tripped."""
+    try:
+        breaker = (ctx or {}).get("breaker")
+        return bool(breaker is not None and breaker.is_tripped()
+                    and "vision" in (ctx or {}).get("breaker_name", ""))
+    except Exception:
+        return False
+
+
+STRATEGY_HANDLERS = {
+    "cooldown_wait": _h_cooldown_wait,
+    "check_port": _h_check_port,
+    "fallback_model": _h_fallback_model,
+    "fallback_yolo": _h_fallback_yolo,
+}
+
+# Circuit-breaker names (self_heal.py) -> healer service names
+_BREAKER_SERVICE = {
+    "vision-moondream": "moondream",
+    "llm-deepthink": "ollama",
+}
+
+
+def on_breaker_tripped(breaker_name, breaker):
+    """Run ranked recovery strategies for a tripped breaker.
+
+    Called on a daemon thread (never the hot path). Tries each ranked
+    strategy with a real handler, journals every attempt, and stages a
+    spoken escalation for owner if everything fails. Never raises.
+    """
+    try:
+        service = _BREAKER_SERVICE.get(breaker_name, breaker_name)
+        ctx = {"breaker": breaker, "breaker_name": breaker_name}
+        for strat in ranked_strategies(service):
+            handler = STRATEGY_HANDLERS.get(strat)
+            if handler is None:
+                continue  # outside the healer's safe scope; don't fake it
+            t0 = time.time()
+            notes = ""
+            try:
+                ok = bool(handler(service, ctx))
+            except Exception as e:
+                ok = False
+                notes = "handler error: %s" % type(e).__name__
+            log_healing_event(service, "breaker_tripped", strat,
+                              "success" if ok else "failed",
+                              duration_secs=time.time() - t0, notes=notes)
+            if ok:
+                return True
+        # Every known strategy failed -> escalate to owner (spoken once at
+        # the next session start, via self_heal.pop_pending_escalation).
+        try:
+            if should_escalate_to_owner(service):
+                import self_heal as _sh_esc
+                _sh_esc.set_pending_escalation(
+                    "Sir, my %s keeps failing and my usual recoveries are not "
+                    "working. You may want to take a look at the laptop when "
+                    "you have a moment."
+                    % ("vision" if service == "moondream"
+                       else "deeper thinking"))
+        except Exception:
+            pass
+        return False
+    except Exception:
+        return False

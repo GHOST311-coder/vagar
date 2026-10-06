@@ -17,6 +17,8 @@ through the owner's approval gate, per his standing rule.
 
 Thread-safe. Never crashes the worker.
 """
+import os
+import sys
 import threading
 import time
 import logging
@@ -54,10 +56,17 @@ class CircuitBreaker:
     def record_failure(self):
         with self._lock:
             self._failures += 1
+            tripped_now = False
             if self._failures >= self.threshold and self._tripped_at == 0:
                 self._tripped_at = time.time()
+                tripped_now = True
                 _log.warning("selfheal: breaker '%s' TRIPPED after %d failures",
                              self.name, self._failures)
+        # Hand the trip to the evolving healer off the hot path: it runs
+        # ranked recovery strategies, journals outcomes, and stages an
+        # escalation for owner if everything fails. Never blocks here.
+        if tripped_now:
+            _notify_healer_of_trip(self)
 
     def status(self):
         with self._lock:
@@ -101,6 +110,8 @@ def _supervisor_loop():
                         if bucket is not None:
                             _yw.start(bucket, name=src,
                                       interval=1.0 if src == "phone" else 2.0)
+                            _journal_restart("yolo_watch",
+                                             "yolo-%s stale >45s, restarted" % src)
             except Exception as e:
                 _log.warning("selfheal: yolo supervise failed: %s", e)
             # Laptop cam
@@ -114,6 +125,8 @@ def _supervisor_loop():
                         _lc2.stop()
                         time.sleep(1)
                         _lc2.start()
+                        _journal_restart("laptop_cam",
+                                         "laptopcam never produced a frame, restarted")
             except Exception as e:
                 _log.warning("selfheal: laptopcam supervise failed: %s", e)
         except Exception as e:
@@ -142,3 +155,68 @@ def stop_supervisor():
 
 def breaker_status():
     return {"vision": vision_breaker.status(), "llm": llm_breaker.status()}
+
+
+_escalation_lock = threading.Lock()
+_pending_escalation = None
+
+
+def set_pending_escalation(msg):
+    """Stage a spoken alert for owner; delivered once at next session start."""
+    global _pending_escalation
+    try:
+        with _escalation_lock:
+            if _pending_escalation is None:
+                _pending_escalation = msg
+    except Exception:
+        pass
+
+
+def pop_pending_escalation():
+    """Return and clear the staged escalation message, if any."""
+    global _pending_escalation
+    try:
+        with _escalation_lock:
+            msg = _pending_escalation
+            _pending_escalation = None
+            return msg
+    except Exception:
+        return None
+
+
+def _ensure_healer_importable():
+    """Make evolving_healer (lives in skills/) importable."""
+    try:
+        skills_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "skills")
+        if skills_dir not in sys.path:
+            sys.path.insert(0, skills_dir)
+    except Exception:
+        pass
+
+
+def _notify_healer_of_trip(breaker):
+    """Run the evolving healer's trip handler on a daemon thread."""
+    def _run():
+        try:
+            _ensure_healer_importable()
+            import evolving_healer as _eh
+            _eh.on_breaker_tripped(breaker.name, breaker)
+        except Exception as e:
+            _log.warning("selfheal: healer trip hook failed: %s", e)
+    try:
+        t = threading.Thread(target=_run, daemon=True, name="healer-trip")
+        t.start()
+    except Exception:
+        pass
+
+
+def _journal_restart(service, detail):
+    """Journal a supervisor thread restart as a healing event."""
+    try:
+        _ensure_healer_importable()
+        import evolving_healer as _eh2
+        _eh2.log_healing_event(service, "stale_thread", "restart_thread",
+                               "success", notes=detail[:200])
+    except Exception:
+        pass

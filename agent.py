@@ -1995,6 +1995,61 @@ def _make_ollama_client():
     )
 
 
+# --- proactive battery warnings (owner-approved 2026-10-06) ---
+# Background poll, active ONLY during calls. Speaks latched once-per-level
+# warnings at 30% and 15% via session.say. Daemon thread; every failure
+# mode is swallowed so it can never crash the agent or spam speech.
+def _say_from_thread(loop, session, text):
+    try:
+        fut = asyncio.run_coroutine_threadsafe(
+            session.say(text, allow_interruptions=True), loop)
+        fut.result(timeout=180)
+    except Exception:
+        pass
+
+
+def _battery_watch_loop(stop_event, loop, session,
+                        first_delay=60, interval=300):
+    try:
+        import sys as _bws
+        from pathlib import Path as _bwp
+        _bws.path.insert(0, str(_bwp(__file__).resolve().parent / "skills"))
+        from battery_monitor import check_battery as _check_batt
+    except Exception:
+        return
+    warned = {"low": False, "critical": False}
+    try:
+        if stop_event.wait(first_delay):  # let greeting/briefing finish
+            return
+        while not stop_event.is_set():
+            try:
+                st = _check_batt()
+                if st.get("available") and not st.get("plugged_in"):
+                    lvl, pct = st.get("level"), st.get("percent")
+                    if lvl == "critical" and not warned["critical"]:
+                        warned["critical"] = warned["low"] = True
+                        _say_from_thread(
+                            loop, session,
+                            "Sir, the laptop battery is critical at %s percent. "
+                            "Please plug in the charger, or I may go dark "
+                            "mid-sentence." % pct)
+                    elif lvl == "low" and not warned["low"]:
+                        warned["low"] = True
+                        _say_from_thread(
+                            loop, session,
+                            "Sir, a gentle reminder \u2014 the laptop battery is at "
+                            "%s percent and not charging. You may want to plug "
+                            "in soon." % pct)
+                else:
+                    # plugged in or recovered: re-arm both latches
+                    warned["low"] = warned["critical"] = False
+            except Exception:
+                pass
+            stop_event.wait(interval)
+    except Exception:
+        pass
+
+
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
 
@@ -2113,6 +2168,14 @@ async def entrypoint(ctx: JobContext):
             ),
             room=ctx.room,
         )
+        # --- proactive battery warnings: background poll, this call only ---
+        # owner-approved 2026-10-06. Daemon thread; stopped in finally.
+        _battery_stop = threading.Event()
+        _battery_thread = threading.Thread(
+            target=_battery_watch_loop,
+            args=(_battery_stop, asyncio.get_running_loop(), session),
+            daemon=True, name="vagar-battery-watch")
+        _battery_thread.start()
         _nm = _load_identity()["name"]
         await session.say(__import__("random").choice([
             "Good day, " + USER_FORMAL_NAME + ". %s at your service. Ask me what I can do, for the full list." % _nm,
@@ -2139,6 +2202,15 @@ async def entrypoint(ctx: JobContext):
                 await session.say(_a, allow_interruptions=True)
         except Exception:
             pass
+        # --- healer escalation: speak a pending self-heal alert once ---
+        # Staged by evolving_healer when every recovery strategy has failed.
+        try:
+            import self_heal as _shesc
+            _esc = _shesc.pop_pending_escalation()
+            if _esc:
+                await session.say(_esc, allow_interruptions=True)
+        except Exception:
+            pass
         # Stay on the call until the user hangs up. Without this the
         # entrypoint returns right after the greeting, the job ends, and
         # the agent leaves the room (no STT, no tools, no vision).
@@ -2149,6 +2221,10 @@ async def entrypoint(ctx: JobContext):
         recorder.record("error", where="entrypoint", message="%s: %s" % (type(e).__name__, e))
         raise
     finally:
+        try:
+            _battery_stop.set()  # stop the proactive battery watch
+        except Exception:
+            pass
         try:
             _save_session_snapshot(_exchanges)
         except Exception:
