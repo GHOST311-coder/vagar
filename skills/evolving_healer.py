@@ -1,4 +1,4 @@
-﻿"""Vagar evolving self-healer: learns which recovery strategies work.
+"""Vagar evolving self-healer: learns which recovery strategies work.
 
 Layer on top of self_heal.py circuit breakers. Instead of fixed rules,
 this module:
@@ -8,7 +8,11 @@ this module:
    to alternatives, alerts the owner only when all known strategies fail
 4. Proposes new strategies via skill_manager when patterns emerge
 
-Never rewrites code or deploys changes autonomously. New strategies
+Drafts code fixes as unified diffs into staging/healer_patches/ for
+the owner's approval (mirrors the skill_manager draft->stage->approve
+pattern). Nothing is ever applied without an explicit approval call.
+
+Never applies code changes autonomously. New strategies and patches
 go through the owner's approval gate, per his standing rule.
 Thread-safe. Never crashes the worker.
 """
@@ -235,19 +239,456 @@ def on_breaker_tripped(breaker_name, breaker):
                               duration_secs=time.time() - t0, notes=notes)
             if ok:
                 return True
-        # Every known strategy failed -> escalate to owner (spoken once at
-        # the next session start, via self_heal.pop_pending_escalation).
+        # Every known strategy failed -> draft a fix for the owner, then
+        # escalate (spoken once at the next session start, via
+        # self_heal.pop_pending_escalation).
         try:
             if should_escalate_to_owner(service):
+                _patch = _maybe_draft_patch(service)
                 import self_heal as _sh_esc
-                _sh_esc.set_pending_escalation(
-                    "Sir, my %s keeps failing and my usual recoveries are not "
-                    "working. You may want to take a look at the laptop when "
-                    "you have a moment."
-                    % ("vision" if service == "moondream"
-                       else "deeper thinking"))
+                _label = ("vision" if service == "moondream"
+                          else "deeper thinking")
+                if _patch:
+                    _sh_esc.set_pending_escalation(
+                        "Sir, my %s keeps failing and my usual recoveries are "
+                        "not working. I have drafted a fix and staged it for "
+                        "your approval - say 'list pending patches' to "
+                        "review it." % _label)
+                else:
+                    _sh_esc.set_pending_escalation(
+                        "Sir, my %s keeps failing and my usual recoveries are "
+                        "not working. You may want to take a look at the "
+                        "laptop when you have a moment." % _label)
         except Exception:
             pass
         return False
     except Exception:
         return False
+
+
+# =====================================================================
+# Healer-drafted code patches (owner-approved 2026-10-06)
+#
+# When every ranked recovery strategy fails for a service, the healer
+# asks the deep model to DRAFT a fix as a unified diff and stages it
+# under skills/staging/healer_patches/ for the owner's approval.
+# Nothing is ever applied without an explicit approve_healer_patch call.
+# Mirrors the skill_manager draft -> stage -> approve pattern.
+# =====================================================================
+
+import py_compile as _pycompile
+import re as _re2
+import shutil as _shutil2
+import tempfile as _tempfile2
+import urllib.request as _urlrequest
+
+try:
+    from livekit.agents.llm import function_tool as _ft
+    _HAVE_TOOL = True
+except Exception:
+    _HAVE_TOOL = False
+
+_HEALER_FILE = os.path.realpath(os.path.abspath(__file__))
+_HEALER_DIR = os.path.dirname(_HEALER_FILE)
+_VAGAR_ROOT = os.path.dirname(_HEALER_DIR)
+_AGENT_PY = os.path.realpath(os.path.join(os.path.dirname(_VAGAR_ROOT), "agent.py"))
+_SELF_HEAL_PY = os.path.realpath(os.path.join(_VAGAR_ROOT, "self_heal.py"))
+_PATCH_STAGE_DIR = os.path.join(_HEALER_DIR, "staging", "healer_patches")
+_PATCH_APPLIED_DIR = os.path.join(_PATCH_STAGE_DIR, "applied")
+
+_DRAFT_MODEL = "qwen2.5:3b"
+_OLLAMA_API = "http://localhost:11434/api/generate"
+
+# service -> file the healer may propose fixes for. The healer improves
+# its own recovery logic (this module) and the breaker layer; agent.py
+# stays allowlisted for model-identified root causes there.
+_SERVICE_PATCH_TARGET = {
+    "moondream": _HEALER_FILE,
+    "ollama": _HEALER_FILE,
+    "livekit": _SELF_HEAL_PY,
+    "yolo_watch": _HEALER_FILE,
+    "laptop_cam": _HEALER_FILE,
+}
+
+_SECRET_RES = [
+    _re2.compile(r"sk-[A-Za-z0-9]{8,}"),
+    _re2.compile(r"ghp_[A-Za-z0-9]{8,}"),
+    _re2.compile(r"(?i)(api_key|apikey|password|passwd|secret|bearer|token)\s*[:=]\s*['\"][^'\"]{3,}['\"]"),
+]
+
+_patch_lock = threading.Lock()
+
+
+def _sanitize_patch_name(name):
+    return _re2.sub(r"[^a-zA-Z0-9_-]", "", (name or "").strip().lower())[:64]
+
+
+def _is_patchable_target(path):
+    """True iff path is an allowlisted patch target (canonical compare)."""
+    try:
+        real = os.path.realpath(os.path.abspath(path))
+    except Exception:
+        return False
+    if not real.lower().endswith(".py"):
+        return False
+    if real in (_AGENT_PY, _SELF_HEAL_PY, _HEALER_FILE):
+        return True
+    skills = os.path.realpath(_HEALER_DIR)
+    return os.path.dirname(real) == skills
+
+
+def _extract_diff(text):
+    m = _re2.search(r"```diff(.*?)```", text, _re2.S)
+    if m:
+        return m.group(1).strip()
+    m = _re2.search(r"```(.*?)```", text, _re2.S)
+    if m:
+        return m.group(1).strip()
+    # salvage: bare diff with no fence - start at first ---/+++/@@ line
+    lines = text.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if s.startswith("--- ") or s.startswith("+++ ") or s.startswith("@@ "):
+            start = i
+            break
+    if start is not None:
+        return "\n".join(lines[start:]).strip()
+    return ""
+
+
+def _scan_for_secrets(diff_text):
+    return any(rx.search(diff_text) for rx in _SECRET_RES)
+
+
+def _apply_unified_diff(original, diff_text):
+    """Apply a unified diff to original text. Raises ValueError on mismatch."""
+    hunks = []
+    cur = None
+    for line in diff_text.splitlines():
+        m = _re2.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+        if m:
+            cur = (int(m.group(1)), [])
+            hunks.append(cur)
+            continue
+        if cur is None:
+            continue  # skip ---/+++/diff headers
+        if line.startswith("\\"):
+            continue  # "\ No newline at end of file"
+        cur[1].append(line)
+    if not hunks:
+        raise ValueError("no hunks found in diff")
+    src = original.splitlines()
+    out = []
+    pos = 0
+    for start, hunk in hunks:
+        idx = start - 1
+        if idx < 0 or idx < pos:
+            raise ValueError("bad hunk offset")
+        out.extend(src[pos:idx])
+        pos = idx
+        for hl in hunk:
+            if hl.startswith(" ") or hl == "":
+                want = hl[1:] if hl.startswith(" ") else ""
+                if pos >= len(src) or src[pos] != want:
+                    raise ValueError("context mismatch at line %d" % (pos + 1))
+                out.append(src[pos])
+                pos += 1
+            elif hl.startswith("-"):
+                if pos >= len(src) or src[pos] != hl[1:]:
+                    raise ValueError("removal mismatch at line %d" % (pos + 1))
+                pos += 1
+            elif hl.startswith("+"):
+                out.append(hl[1:])
+            else:
+                raise ValueError("bad hunk line: %r" % hl[:40])
+    out.extend(src[pos:])
+    text = "\n".join(out)
+    if original.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def _validate_patch(target_path, diff_text):
+    """Sandbox gate: headers sane, no secrets, applies cleanly, compiles."""
+    base = os.path.basename(target_path)
+    for line in diff_text.splitlines():
+        if line.startswith("--- ") or line.startswith("+++ "):
+            p = line[4:].strip().split()[0]
+            if p == "/dev/null":
+                continue
+            q = p[2:] if p.startswith(("a/", "b/")) else p
+            if os.path.basename(q) != base:
+                return False, "diff touches unexpected file: %s" % p
+    if _scan_for_secrets(diff_text):
+        return False, "diff failed secret scan"
+    tmpd = _tempfile2.mkdtemp(prefix="healer_patch_")
+    try:
+        with open(target_path, "r", encoding="utf-8") as f:
+            original = f.read()
+        try:
+            patched = _apply_unified_diff(original, diff_text)
+        except ValueError as e:
+            return False, "diff does not apply: %s" % e
+        trial = os.path.join(tmpd, base)
+        with open(trial, "w", encoding="utf-8") as f:
+            f.write(patched)
+        _pycompile.compile(trial, doraise=True)
+        return True, ""
+    except Exception as e:
+        return False, "validation error: %s: %s" % (type(e).__name__, e)
+    finally:
+        try:
+            _shutil2.rmtree(tmpd, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def _draft_prompt(service, target_path):
+    try:
+        with open(target_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        return None
+    if len(content) > 12000:
+        content = content[:12000] + "\n...[truncated]...\n"
+    lines = [
+        "The self-healer tried every known recovery strategy for service '%s' and all failed." % service,
+        "",
+        "Recent healing journal:",
+        failure_summary(service),
+    ]
+    for e in [x for x in _read_journal() if x.get("service") == service][-8:]:
+        lines.append("  - %s | %s | %s | %s" % (
+            e.get("strategy"), e.get("outcome"), e.get("failure_type"),
+            (e.get("notes") or "")[:80]))
+    lines += [
+        "",
+        "Target file to fix: %s" % os.path.basename(target_path),
+        "Current content:",
+        "```python",
+        content,
+        "```",
+        "",
+        "Draft a MINIMAL, targeted fix as a unified diff. Rules:",
+        "- Address the likely root cause shown in the journal; keep the change small.",
+        "- Modify ONLY the target file. No new files, no new dependencies.",
+        "- Wrap risky code in try/except; the module must never crash on import.",
+        "- Never include credentials, tokens, keys, or passwords.",
+        "- Copy context lines EXACTLY as shown, including leading spaces and indentation.",
+        "- Output ONLY the diff inside a ```diff fenced block. No explanations.",
+        "  Example of the required output format:",
+        "  ```diff",
+        "  --- a/example.py",
+        "  +++ b/example.py",
+        "  @@ -1,3 +1,3 @@",
+        "   line1",
+        "  -old line",
+        "  +new line",
+        "   line3",
+        "  ```",
+    ]
+    return "\n".join(lines)
+
+
+def _draft_patch_via_llm(service, target_path):
+    """Ask the deep model for a fix diff. Returns (diff, error). Never raises."""
+    try:
+        prompt = _draft_prompt(service, target_path)
+        if not prompt:
+            return None, "could not build draft prompt"
+        body = json.dumps({
+            "model": _DRAFT_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.2, "num_predict": 2000},
+        }).encode()
+        req = _urlrequest.Request(_OLLAMA_API, data=body,
+                                  headers={"Content-Type": "application/json"})
+        with _urlrequest.urlopen(req, timeout=300) as r:
+            text = json.loads(r.read())["response"]
+        diff = _extract_diff(text)
+        if not diff:
+            return None, "model did not return a diff"
+        return diff, ""
+    except Exception as e:
+        return None, "draft model call failed: %s: %s" % (type(e).__name__, e)
+
+
+def _service_has_staged_patch(service):
+    if not os.path.isdir(_PATCH_STAGE_DIR):
+        return False
+    for f in os.listdir(_PATCH_STAGE_DIR):
+        if f.endswith(".json"):
+            try:
+                with open(os.path.join(_PATCH_STAGE_DIR, f), "r", encoding="utf-8") as fh:
+                    if json.load(fh).get("service") == service:
+                        return True
+            except Exception:
+                pass
+    return False
+
+
+def _maybe_draft_patch(service):
+    """Draft, validate and stage a fix. Returns patch name or None. Never raises."""
+    try:
+        if _service_has_staged_patch(service):
+            return None  # one staged patch per service at a time
+        target = _SERVICE_PATCH_TARGET.get(service, _HEALER_FILE)
+        if not _is_patchable_target(target):
+            return None
+        # Bounded retries: the small draft model is nondeterministic;
+        # a fresh sample often produces a clean, applicable diff.
+        diff = None
+        for _attempt in range(3):
+            _d, _err = _draft_patch_via_llm(service, target)
+            if not _d:
+                log_healing_event(service, "patch_draft", "draft", "failed",
+                                  notes="attempt %d: %s" % (_attempt + 1, _err[:150]))
+                continue
+            _ok, _msg = _validate_patch(target, _d)
+            if _ok:
+                diff = _d
+                break
+            log_healing_event(service, "patch_draft", "validate", "failed",
+                              notes="attempt %d: %s" % (_attempt + 1, _msg[:150]))
+        if not diff:
+            return None
+        with _patch_lock:
+            if _service_has_staged_patch(service):
+                return None
+            name = "%s-%s" % (_sanitize_patch_name(service) or "patch",
+                              time.strftime("%Y%m%d-%H%M%S"))
+            os.makedirs(_PATCH_STAGE_DIR, exist_ok=True)
+            with open(os.path.join(_PATCH_STAGE_DIR, name + ".patch"),
+                      "w", encoding="utf-8") as f:
+                f.write(diff if diff.endswith("\n") else diff + "\n")
+            sidecar = {
+                "name": name,
+                "ts": time.time(),
+                "service": service,
+                "target_file": target,
+                "draft_model": _DRAFT_MODEL,
+                "journal_summary": failure_summary(service)[:2000],
+            }
+            with open(os.path.join(_PATCH_STAGE_DIR, name + ".json"),
+                      "w", encoding="utf-8") as f:
+                json.dump(sidecar, f, indent=2)
+        log_healing_event(service, "patch_draft", "stage", "success", notes=name)
+        return name
+    except Exception:
+        return None
+
+
+def _load_sidecar(name):
+    with open(os.path.join(_PATCH_STAGE_DIR, name + ".json"),
+              "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+async def _impl_list_pending_patches() -> str:
+    try:
+        if not os.path.isdir(_PATCH_STAGE_DIR):
+            return "There are no staged patches."
+        names = sorted(f[:-6] for f in os.listdir(_PATCH_STAGE_DIR)
+                       if f.endswith(".patch"))
+        if not names:
+            return "There are no staged patches."
+        lines = []
+        for n in names:
+            try:
+                sc = _load_sidecar(n)
+                first = (sc.get("journal_summary", "") or "").splitlines()
+                lines.append("%s: service '%s', target %s, drafted %s. %s" % (
+                    n, sc.get("service"), os.path.basename(sc.get("target_file", "?")),
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(sc.get("ts", 0))),
+                    first[0][:120] if first else ""))
+            except Exception:
+                lines.append("%s: (unreadable sidecar)" % n)
+        return "Staged healer patches:\n" + "\n".join(lines)
+    except Exception as e:
+        return "Could not list patches: %s" % e
+
+
+async def _impl_approve_healer_patch(name: str) -> str:
+    clean = _sanitize_patch_name(name)
+    if not clean:
+        return "That patch name is not valid."
+    try:
+        with _patch_lock:
+            try:
+                sc = _load_sidecar(clean)
+            except FileNotFoundError:
+                return "There is no staged patch named '%s'." % clean
+            target = sc.get("target_file", "")
+            if not _is_patchable_target(target):
+                return "Patch '%s' targets a file outside the allowlist; refused." % clean
+            patch_path = os.path.join(_PATCH_STAGE_DIR, clean + ".patch")
+            with open(patch_path, "r", encoding="utf-8") as f:
+                diff = f.read()
+            if _scan_for_secrets(diff):
+                return "Patch '%s' failed the secret scan; refused." % clean
+            with open(target, "r", encoding="utf-8") as f:
+                original = f.read()
+            try:
+                patched = _apply_unified_diff(original, diff)
+            except ValueError as e:
+                return ("Patch '%s' no longer applies cleanly: %s. Discard it and "
+                        "let the healer draft a fresh one." % (clean, e))
+            bak = "%s.bak-%s-healerpatch" % (target, time.strftime("%Y%m%d-%H%M%S"))
+            _shutil2.copy2(target, bak)
+            try:
+                with open(target, "w", encoding="utf-8") as f:
+                    f.write(patched)
+                _pycompile.compile(target, doraise=True)
+            except Exception as e:
+                _shutil2.copy2(bak, target)  # roll back
+                return ("Applying patch '%s' failed (%s: %s); the original was "
+                        "restored from backup." % (clean, type(e).__name__, e))
+            os.makedirs(_PATCH_APPLIED_DIR, exist_ok=True)
+            _shutil2.move(patch_path, os.path.join(_PATCH_APPLIED_DIR, clean + ".patch"))
+            _shutil2.move(os.path.join(_PATCH_STAGE_DIR, clean + ".json"),
+                          os.path.join(_PATCH_APPLIED_DIR, clean + ".json"))
+            return ("Patch '%s' applied to %s (backup: %s). It takes effect after "
+                    "the worker restarts." % (clean, os.path.basename(target),
+                                              os.path.basename(bak)))
+    except Exception as e:
+        return "approve_healer_patch failed: %s: %s" % (type(e).__name__, e)
+
+
+async def _impl_reject_healer_patch(name: str) -> str:
+    clean = _sanitize_patch_name(name)
+    if not clean:
+        return "That patch name is not valid."
+    try:
+        with _patch_lock:
+            pp = os.path.join(_PATCH_STAGE_DIR, clean + ".patch")
+            pj = os.path.join(_PATCH_STAGE_DIR, clean + ".json")
+            if not os.path.isfile(pp):
+                return "There is no staged patch named '%s'." % clean
+            os.remove(pp)
+            if os.path.isfile(pj):
+                os.remove(pj)
+            return "Staged patch '%s' discarded." % clean
+    except Exception as e:
+        return "reject_healer_patch failed: %s: %s" % (type(e).__name__, e)
+
+
+if _HAVE_TOOL:
+    list_pending_patches = _ft(
+        name="list_pending_patches",
+        description=("List healer-drafted code patches staged for the owner's approval. "
+                     "Call when the user asks what patches are pending review."),
+    )(_impl_list_pending_patches)
+    approve_healer_patch = _ft(
+        name="approve_healer_patch",
+        description=("Apply a staged healer-drafted patch to its target file, with an "
+                     "automatic timestamped backup. ONLY the user may approve patches - "
+                     "never call this on your own initiative. Only call it when the user "
+                     "explicitly names a patch to approve."),
+    )(_impl_approve_healer_patch)
+    reject_healer_patch = _ft(
+        name="reject_healer_patch",
+        description=("Discard a staged healer-drafted patch without applying it. "
+                     "Use when the user declines a drafted fix."),
+    )(_impl_reject_healer_patch)
