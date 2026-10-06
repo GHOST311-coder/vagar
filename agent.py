@@ -991,10 +991,29 @@ def _get_due_routines() -> list:
         from pathlib import Path as _rtp
         _rts.path.insert(0, str(_rtp(__file__).resolve().parent / "skills"))
         from routines import list_due_routines as _ldrr
-        _res = _ldrr()
+        import asyncio as _aio, threading as _th
+        _coro = _ldrr()  # coroutine object: must be driven to completion
+        try:
+            _aio.get_running_loop()
+            _in_loop = True
+        except RuntimeError:
+            _in_loop = False
+        if _in_loop:
+            # Inside a running loop asyncio.run() would raise: drive the
+            # coroutine on a helper thread with its own event loop.
+            _box = {}
+            def _drive():
+                _box["res"] = _aio.run(_coro)
+            _dt = _th.Thread(target=_drive, daemon=True)
+            _dt.start()
+            _dt.join(timeout=60)
+            _res = _box.get("res", "Nothing due right now.")
+        else:
+            _res = _aio.run(_coro)
         if "Nothing due" in str(_res):
             return []
-        return [ln.strip("- ").strip() for ln in str(_res).split("\n")
+        return [{"text": ln.strip("- ").strip()}
+                for ln in str(_res).split("\n")
                 if ln.strip().startswith("-")]
     except Exception:
         return []
