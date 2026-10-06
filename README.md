@@ -111,6 +111,8 @@ wiki_builder.py      # Static offline wiki generator
 
 Say *"create a skill that …"* and Vagar drafts the Python, stages it under `skills/staging/`, and shows you the code. Say *"approve <name>"* and it goes live at the next session — no restart. Say *"reject <name>"* to delete it.
 
+Vagar is also curious on its own: when you ask for something no skill can do, it logs the gap and may suggest learning a skill for it (ask-first, once a day at most). Say *"look up a skill for …"* and it researches implementations on the web (pages are prompt-injection scanned), drafts through the same sandboxed pipeline, and stages the result for your approval. Nothing ever activates without your say-so.
+
 ## Privacy
 
 Everything runs on your machine. The LLM, STT, and TTS are all local models. The web_fetch skill only makes outbound HTTPS requests to public pages you ask about, with strict blocks on private/loopback/link-local addresses (including redirect targets). No telemetry, no accounts, no cloud.

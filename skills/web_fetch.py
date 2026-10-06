@@ -98,6 +98,15 @@ def _to_text(raw, content_type):
                  "Use for looking things up when the user asks."),
 )
 async def web_fetch(url: str) -> str:
+    return await fetch_page_text(url)
+
+
+async def fetch_page_text(url: str) -> str:
+    """Plain (undecorated) guarded fetch, importable by other modules.
+
+    Same guards and injection scan as the web_fetch tool: SSRF checks,
+    15s timeout, 200KB cap, inject_guard scan before returning text.
+    """
     try:
         import sys as _asys  # project root on sys.path (see top of file)
         import activity as _act

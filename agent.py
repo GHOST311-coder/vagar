@@ -102,6 +102,11 @@ from skill_manager import (
     validate_skill_code,
 )
 
+# Skill curiosity + web lookup: the assistant proposes, the user approves.
+# Nothing here ever auto-imports a skill.
+import skill_curiosity
+import skill_lookup
+
 # WHISPER_MODEL now comes from config.py
 # WHISPER_LANG now comes from config.py
 # KOKORO_MODEL now comes from config.py
@@ -212,13 +217,18 @@ _VAGAR_INSTRUCTIONS_TEMPLATE = (
     "Skills: get_local_time, roll_dice, batch_status, system_status, recall_memory, "
     "remember_fact, look (phone camera), set_reminder/list_reminders/cancel_reminder, "
     "web_fetch (public pages only), create_skill/list_pending_skills/approve_skill/"
-    "reject_skill/list_skills, change_name, change_avatar, ask_specialist. "
+    "reject_skill/list_skills, note_skill_gap/dismiss_skill_gap/list_skill_gaps, ""lookup_skill, change_name, change_avatar, ask_specialist. "
     "ask_specialist routes to expert agents: 'sales' for pricing/royalty math, "
     "'kdp' for manuscript/cover/publishing, 'marketing' for titles/descriptions/copy, "
     "'security' for threat/hardening review. Use it when {user_name} asks domain questions "
     "beyond a quick answer. Only {user_name} approves skills. "
     "Call recall_memory at session start (silently). Save facts with remember_fact. "
-    "Defensive security only. Local-first."
+    "Defensive security only. Local-first." +
+    " Skill curiosity: when the user asks for something no tool can do, call "
+    "note_skill_gap with a short description, then say so plainly. If a "
+    "suggested skill gets a yes, call create_skill (or lookup_skill for web "
+    "research first). If waved off, call dismiss_skill_gap. Only the user "
+    "approves skills - never call approve_skill on your own."
 )
 
 VAGAR_INSTRUCTIONS = _build_instructions()  # back-compat; entrypoint rebuilds per-session
@@ -1820,6 +1830,89 @@ class VagarAgent(Agent):
         except Exception as e:
             return "reject_skill failed: %s: %s" % (type(e).__name__, e)
     @function_tool(
+        name="note_skill_gap",
+        description=(
+            "Log something the user asked for that the assistant cannot do with any "
+            "current tool, or a tool that keeps failing at. Call this when you have "
+            "to say 'I can't do that' so a skill can be suggested for it later. "
+            "Args: description (short plain-language summary, e.g. 'read text "
+            "from PDF files')."
+        ),
+    )
+    async def note_skill_gap(self, description: str) -> str:
+        try:
+            entry = await asyncio.to_thread(skill_curiosity.log_gap, description)
+            n = int(entry.get("count", 1))
+            return ("Noted. If this keeps coming up I'll suggest learning a skill "
+                    "for it. (Seen %d time%s.)" % (n, "" if n == 1 else "s"))
+        except Exception as e:
+            return "Could not log that: %s" % e
+
+    @function_tool(
+        name="dismiss_skill_gap",
+        description=(
+            "Snooze a logged or suggested skill gap when the user isn't interested "
+            "(e.g. 'never mind', 'don't bother', 'not now'). It stays logged but "
+            "won't be suggested again. Args: description (which gap)."
+        ),
+    )
+    async def dismiss_skill_gap(self, description: str) -> str:
+        try:
+            ok = await asyncio.to_thread(skill_curiosity.snooze_gap, description)
+            return ("Dropped it - I won't bring that one up again."
+                    if ok else "I don't have that gap logged.")
+        except Exception as e:
+            return "Could not dismiss that: %s" % e
+
+    @function_tool(
+        name="list_skill_gaps",
+        description="List the capability gaps logged as candidates for new skills.",
+    )
+    async def list_skill_gaps(self) -> str:
+        try:
+            gaps = await asyncio.to_thread(skill_curiosity.list_gaps)
+            if not gaps:
+                return "Nothing logged - I haven't hit anything I can't do lately."
+            return "Gaps I've logged: " + "; ".join(
+                "%s (seen %d)" % (g.get("description", "?")[:60], int(g.get("count", 0)))
+                for g in gaps[:8])
+        except Exception as e:
+            return "Could not list gaps: %s" % e
+
+    @function_tool(
+        name="lookup_skill",
+        description=(
+            "Look up how to build a skill on the web, then draft it through the "
+            "normal sandboxed pipeline. Fetched pages are prompt-injection scanned; "
+            "the draft is compile-checked and STAGED, never auto-activated - the "
+            "user must approve it with approve_skill. Use when the user asks to "
+            "learn something and wants web research first ('look up a skill for X'). "
+            "Args: query (what the skill should do), name (optional short "
+            "snake_case name)."
+        ),
+    )
+    async def lookup_skill(self, query: str, name: str = "") -> str:
+        _broadcast_activity("Looking up skill designs\u2026")
+        t0 = time.perf_counter()
+        ok = True
+        try:
+            res = await skill_lookup.lookup_and_draft(query, name)
+            if not res.get("ok"):
+                ok = False
+            return res.get("message", "Lookup finished.")
+        except Exception as e:
+            ok = False
+            return "lookup_skill failed: %s: %s" % (type(e).__name__, e)
+        finally:
+            recorder.record(
+                "tool_call",
+                name="lookup_skill",
+                args_json=json.dumps({"query": str(query)[:60]}),
+                latency_ms=round((time.perf_counter() - t0) * 1000, 1),
+                ok=ok,
+            )
+
+    @function_tool(
         name="change_name",
         description=(
             "Change Vagar's name. Use when the user says 'change your name to X', "
@@ -2209,6 +2302,19 @@ async def entrypoint(ctx: JobContext):
             _esc = _shesc.pop_pending_escalation()
             if _esc:
                 await session.say(_esc, allow_interruptions=True)
+        except Exception:
+            pass
+        # --- skill curiosity: surface at most one top gap suggestion ---
+        # Ask-first, once per day per gap. A yes leads to create_skill;
+        # a no/dismiss leads to dismiss_skill_gap. Never auto-drafts.
+        try:
+            _gap = await asyncio.to_thread(skill_curiosity.get_top_gap)
+            if _gap and await asyncio.to_thread(skill_curiosity.should_suggest, _gap):
+                await asyncio.to_thread(skill_curiosity.mark_suggested, _gap["key"])
+                await session.say(
+                    "I keep running into '%s' with no good tool for it. "
+                    "Shall I learn a skill for that?" % str(_gap.get("description", ""))[:90],
+                    allow_interruptions=True)
         except Exception:
             pass
         # Stay on the call until the user hangs up. Without this the
