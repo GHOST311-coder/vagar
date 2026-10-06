@@ -1,0 +1,7 @@
+# Vagar Long-Term Memory
+
+<!-- Copy to vagar_memory.md (git-ignored). Vagar reads this at session start
+     and appends new facts via the remember_fact tool. One fact per line,
+     prefixed with the date in [YYYY-MM-DD] brackets. -->
+
+- [2026-10-06] Example: the user prefers short, direct answers.

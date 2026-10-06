@@ -1,0 +1,56 @@
+# --- secrets & personal config ---
+.env
+*.pem
+*.key
+credentials*.json
+secrets*.json
+
+# --- runtime data (personal, generated at runtime) ---
+vagar_memory.md
+quests.json
+reminders.json
+standing_reminders.json
+last_session.json
+last_briefing.txt
+heartbeat.txt
+identity.json
+.mute_state
+last_frame.jpg
+healing_journal.jsonl
+*.log
+
+# --- voice & models (large binaries, user-provided) ---
+voices/
+*.onnx
+*.npz
+*.pt
+*.bin
+*.wav
+*.mp3
+speaker_embeddings/
+voice_samples/
+
+# --- flight recorder sessions ---
+flight-recorder/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env/
+*.egg-info/
+dist/
+build/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
