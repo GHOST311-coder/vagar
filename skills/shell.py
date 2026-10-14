@@ -1,6 +1,6 @@
-"""Run an allowlisted shell command and return its output. Defensive only.
+﻿"""Run an allowlisted shell command and return its output. Defensive only.
 
-ALLOWLIST ONLY — anything not on the list is refused with a clear message:
+ALLOWLIST ONLY â€” anything not on the list is refused with a clear message:
 dir, echo, type, copy, move, del, mkdir, rmdir, ipconfig, systeminfo,
 tasklist, python --version, pip list.
 
@@ -13,7 +13,7 @@ from livekit.agents.llm import function_tool
 
 import subprocess as _subprocess
 
-_CWD = r"C:\Users\sarto\vagar\workspace"
+_CWD = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "workspace")
 _MAX_OUT = 8000
 _TIMEOUT = 30
 

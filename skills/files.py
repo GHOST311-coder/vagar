@@ -1,14 +1,14 @@
-"""Workspace file tools: read, write, append, and list files inside Vagar's workspace.
+﻿"""Workspace file tools: read, write, append, and list files inside Vagar's workspace.
 
-JAILED: every path is confined to C:\\Users\\sarto\\vagar\\workspace\\.
+JAILED: every path is confined to <vagar-home>\workspace\.
 Any path that normalizes outside the jail is refused. This is the only
-place Vagar can read or write files — never the rest of the machine.
+place Vagar can read or write files â€” never the rest of the machine.
 """
 from livekit.agents.llm import function_tool
 
 import os as _os
 
-_JAIL = r"C:\Users\sarto\vagar\workspace"
+_JAIL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "workspace")
 _MAX_BYTES = 200_000
 
 

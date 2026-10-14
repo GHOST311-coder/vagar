@@ -236,7 +236,7 @@ _VAGAR_INSTRUCTIONS_TEMPLATE = (
     "15 or higher means confidence (The dice favor us - seventeen.), 6 or lower "
     "means humility (Only a six... I shall tread carefully here.), anything between "
     "gets a brief nod. One line only, never a production, and the roll never "
-    "changes a factual answer.""Tool discipline: the file, code, website, search, and shell tools are for ""concrete jobs the user asks for - build, analyze, write, research, run. Never ""invent tool calls for chit-chat, greetings, or opinions. Multi-step jobs ""(build a site, analyze data, research a topic) are deep work: they go ""through the deep-think path automatically, so take them one tool call per ""turn, say what you are doing in one short line, and confirm with the user ""before anything destructive. The workspace jail is the only place files ""live - never reach outside it."
+    "changes a factual answer.""Game night: when the user says game night is starting, call start_game_night; ""when it ends, call end_game_night. In game-night mode dice are spoken as ""exactly one number with no extra words. ""Tool discipline: the file, code, website, search, and shell tools are for ""concrete jobs the user asks for - build, analyze, write, research, run. Never ""invent tool calls for chit-chat, greetings, or opinions. Multi-step jobs ""(build a site, analyze data, research a topic) are deep work: they go ""through the deep-think path automatically, so take them one tool call per ""turn, say what you are doing in one short line, and confirm with the user ""before anything destructive. The workspace jail is the only place files ""live - never reach outside it."
 )
 
 VAGAR_INSTRUCTIONS = _build_instructions()  # back-compat; entrypoint rebuilds per-session
@@ -1041,6 +1041,15 @@ def _get_briefing() -> str:
     parts = [("Weather in %s: %s." % (WEATHER_LOCATION.split(",")[0], _wx)
               if _wx != "unavailable" else "")]
     parts = [x for x in parts if x]
+    try:
+        import sys as _sys2
+        _sys2.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills"))
+        import briefing_storm as _storm
+        _sp = _storm.storm_briefing_part(_wx)
+        if _sp:
+            parts.insert(0, _sp)
+    except Exception:
+        pass
     due = _get_due_reminders() + _get_due_routines()
     if due:
         parts.append("You have %d due reminder%s: %s." % (
@@ -1229,6 +1238,19 @@ class VagarAgent(Agent):
                         _sides = 6
                     if _sides > 1000:
                         _sides = 1000
+                    _gn = False
+                    try:
+                        _sdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
+                        with open(os.path.join(_sdir, "game_state.json"), encoding="utf-8") as _gf:
+                            _gn = bool(__import__("json").load(_gf).get("game_night"))
+                    except (OSError, ValueError):
+                        _gn = False
+                    if _gn:
+                        import secrets as _sc
+                        _gtotal = _sc.randbelow(_sides) + 1
+                        _broadcast_avatar_state("speaking")
+                        await self.session.say(str(_gtotal), allow_interruptions=True)
+                        return
                     _roll = _rnd.randint(1, _sides)
                     _broadcast_avatar_state("speaking")
                     await self.session.say(

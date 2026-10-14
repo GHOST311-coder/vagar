@@ -1,4 +1,4 @@
-"""Run Python code: execute a snippet with the signed system Python and return
+﻿"""Run Python code: execute a snippet with the signed system Python and return
 its output. Unlocks data analysis, math, scripting, and automation.
 
 Guards (this is why it's safe to approve):
@@ -6,7 +6,7 @@ Guards (this is why it's safe to approve):
 - Hard timeout (default 30s): the process is killed on expiry.
 - No interactive stdin: code that waits for input is killed by the timeout.
 - Output truncated to ~8KB so it fits the voice loop.
-- Runs from the workspace jail (C:\\Users\\sarto\\vagar\\workspace\\) as the
+- Runs from the workspace jail (<vagar-home>\workspace\) as the
   working directory; importable modules are the stdlib plus what's installed.
 - Defensive only: this executes code the user asked for in conversation.
 """
@@ -15,7 +15,7 @@ from livekit.agents.llm import function_tool
 import subprocess as _subprocess
 
 _PY = r"C:\Python310\python.exe"
-_CWD = r"C:\Users\sarto\vagar\workspace"
+_CWD = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "workspace")
 _MAX_OUT = 8000
 
 
