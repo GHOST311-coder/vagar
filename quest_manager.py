@@ -85,3 +85,113 @@ def complete_quest(name, xp_award):
     })
     _save(d)
     return d
+
+
+# ---------------------------------------------------------------------------
+# Inventory / weapons / spells (D&D flavor layer - no real-world effects)
+# ---------------------------------------------------------------------------
+# QUEST REWARD HOOK: when a future quest completes, call award_item() with the
+# new gear and it lands in the inventory below. Example:
+#   award_item("Wrench of Second Chances", "weapon",
+#              "1d8 bludgeoning",
+#              "Found in the wreckage of a failed deploy.")
+# Spells are learned the same way with kind="spell". Keep names unique;
+# award_item() will refuse a duplicate name so nothing is granted twice.
+
+_VALID_KINDS = ("weapon", "item", "spell")
+
+def _ensure_character(d):
+    """Make sure the character/inventory block exists; seed if missing."""
+    char = d.get("character")
+    if not isinstance(char, dict):
+        char = {}
+        d["character"] = char
+    char.setdefault("name", "Player")
+    char.setdefault("class", "Artificer")
+    char.setdefault("level", 3)
+    char.setdefault("weapons", [])
+    char.setdefault("items", [])
+    char.setdefault("spells", [])
+    return char
+
+def get_character():
+    """Return the character block (class, level, weapons, items, spells)."""
+    d = _load()
+    return _ensure_character(d)
+
+def inventory_text():
+    """Human/voice-readable summary of the full inventory."""
+    char = get_character()
+    char_name = char.get("name", "Player")
+    lines = ["%s, level %d %s" % (
+        char_name, char.get("level", 3), char.get("class", "Artificer"))]
+    weapons = char.get("weapons", [])
+    items = char.get("items", [])
+    spells = char.get("spells", [])
+    if weapons:
+        lines.append("Weapons: " + "; ".join(
+            "%s (%s)" % (w.get("name"), w.get("detail") or "?")
+            for w in weapons))
+    if items:
+        lines.append("Items: " + "; ".join(
+            i.get("name") for i in items))
+    if spells:
+        lines.append("Spells: " + ", ".join(
+            s.get("name") for s in spells))
+    if not (weapons or items or spells):
+        lines.append("Inventory is empty.")
+    return ". ".join(lines) + "."
+
+def award_item(name, kind, detail="", flavor=""):
+    """Grant a weapon, item, or spell. Returns True if new, False if dup.
+
+    kind: 'weapon' | 'item' | 'spell'
+    detail: damage dice for weapons (e.g. '1d8 bludgeoning'),
+            level/school for spells (e.g. 'cantrip'), '' for items.
+    flavor: one-line story of where it came from.
+    """
+    kind = (kind or "").lower()
+    if kind not in _VALID_KINDS:
+        raise ValueError("kind must be one of %s" % (_VALID_KINDS,))
+    d = _load()
+    char = _ensure_character(d)
+    bucket = {"weapon": "weapons", "item": "items",
+              "spell": "spells"}[kind]
+    for existing in char[bucket]:
+        if existing.get("name", "").lower() == name.lower():
+            return False  # already owned
+    char[bucket].append({
+        "name": name, "detail": detail, "flavor": flavor,
+    })
+    _save(d)
+    return True
+
+def describe_item(name):
+    """Full description of one named weapon/item/spell, or None."""
+    char = get_character()
+    for bucket in ("weapons", "items", "spells"):
+        for entry in char.get(bucket, []):
+            if entry.get("name", "").lower() == name.lower():
+                bits = [entry["name"]]
+                if entry.get("detail"):
+                    bits.append(entry["detail"])
+                if entry.get("flavor"):
+                    bits.append(entry["flavor"])
+                return " -- ".join(bits)
+    return None
+
+def cast_spell(name):
+    """Flavor-only spellcasting. Returns a line to speak, or a miss note.
+
+    No real-world effects -- this is the RPG layer, not a tool call.
+    """
+    char = get_character()
+    for s in char.get("spells", []):
+        if s.get("name", "").lower() == name.lower():
+            flavor = s.get("flavor") or "The air hums for a moment."
+            return "%s! %s" % (s["name"], flavor)
+    known = [s.get("name") for s in char.get("spells", [])]
+    if known:
+        return "Unknown spell: %s. Known spells: %s." % (
+            name, ", ".join(known))
+    return "Unknown spell: %s (no spells known yet)." % name
