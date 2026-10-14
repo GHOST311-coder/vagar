@@ -1,1 +1,38 @@
-{"active_quests":[{"description":"Describe what completes this quest.","name":"Example Quest","xp":100}],"completed_quests":[],"level":1,"level_thresholds":{"2":300,"3":600,"4":1000},"pending_announcements":[],"xp":0}
+{
+  "xp": 0,
+  "level": 1,
+  "level_thresholds": {
+    "2": 300,
+    "3": 600,
+    "4": 1000
+  },
+  "active_quests": [
+    {
+      "name": "Example Quest",
+      "xp": 100,
+      "description": "Replace with your own quest. Delete this entry to start fresh."
+    }
+  ],
+  "completed_quests": [],
+  "pending_announcements": [],
+  "character": {
+    "name": "Player",
+    "class": "Artificer",
+    "level": 1,
+    "weapons": [
+      {
+        "name": "Apprentice Wrench",
+        "detail": "1d6 bludgeoning",
+        "flavor": "Standard issue. Every Artificer starts somewhere."
+      }
+    ],
+    "items": [],
+    "spells": [
+      {
+        "name": "Mending",
+        "detail": "cantrip",
+        "flavor": "Fixes what's broken."
+      }
+    ]
+  }
+}
