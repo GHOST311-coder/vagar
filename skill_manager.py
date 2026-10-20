@@ -58,7 +58,9 @@ def load_skill_tools(directory: Path = None):
                 mod = importlib.reload(sys.modules[mod_name])
             else:
                 mod = importlib.import_module(mod_name)
-        except Exception:
+        except BaseException:
+            # BaseException (not just Exception) so a misbehaving skill that
+            # calls sys.exit() can't kill the whole worker.
             print(f"[skill_manager] skipping broken skill {path.name}", file=sys.stderr)
             traceback.print_exc()
             continue
