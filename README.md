@@ -4,6 +4,10 @@
 
 Talk to it over LiveKit (phone app or browser), and it answers with a natural voice, remembers facts across sessions, runs local skills, tracks D&D-style quests with XP, and can even draft new skills for itself.
 
+**Official emblem:** the spectral dragon coiled around a glowing crystal — Vagar's mark on every platform (app icon, desktop launcher, release builds).
+
+**Public build defaults:** this release is sandboxed-by-default — drafted skills are staged and never auto-imported, shell and web tools are allowlisted, self-healing never rewrites core code unattended, and nothing self-activates without the owner's explicit approval.
+
 ## Features
 
 - **Real-time voice loop** — faster-whisper speech-to-text, Ollama LLM brain, Kokoro neural TTS, Silero voice activity detection. All local, all offline-capable.
