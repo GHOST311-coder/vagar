@@ -42,7 +42,6 @@ jobs:
           $need = @{
             'New-CIPolicy'       = @('MultiplePolicyFormat', 'ScanPath', 'NoScript', 'Fallback', 'FilePath', 'Level', 'UserPEs')
             'Add-SignerRule'     = @('FilePath', 'CertificatePath', 'User')
-            'Get-RuleOption'     = @('FilePath')
             'Set-RuleOption'     = @('FilePath', 'Option', 'Delete')
             'Set-CIPolicyIdInfo' = @('FilePath', 'PolicyId', 'SupplementsBasePolicyID', 'PolicyName')
             'Set-CIPolicyVersion' = @('FilePath', 'Version')
@@ -115,18 +114,35 @@ jobs:
           # Everything else (notably Audit Mode, UMCI, Script Enforcement,
           # Advanced Boot Options Menu) is base-only and must be deleted:
           # a surviving Audit Mode would make the allow rules audit-only.
+          # NOTE: there is NO Get-RuleOption cmdlet in ConfigCI (run
+          # 44450822083 failed on it). Read the options from the policy
+          # XML instead, and delete by integer option number: every
+          # number outside the allowlist is delete-attempted, so only
+          # allowlisted options can survive, whatever their names are.
           $allowed = @(5, 6, 7, 13, 14, 18)
-          $opts = Get-RuleOption -FilePath wdac/VagarSupplemental.xml
+          $xmlPath = 'wdac/VagarSupplemental.xml'
+          function Get-XmlOptions {
+            [xml]$x = Get-Content $xmlPath
+            return @($x.SelectNodes("//*[local-name()='Option']") | ForEach-Object { $_.InnerText })
+          }
           Write-Host 'Rule options present before strip:'
-          foreach ($o in $opts) { Write-Host "  Option $($o.Option) : $($o.Name)" }
-          foreach ($o in $opts) {
-            if ($allowed -notcontains [int]$o.Option) {
-              Write-Host "Deleting base-only option $($o.Option) ($($o.Name))"
-              Set-RuleOption -FilePath wdac/VagarSupplemental.xml -Option $o.Option -Delete
+          foreach ($s in Get-XmlOptions) { Write-Host "  $s" }
+          foreach ($n in 0..19) {
+            if ($allowed -contains $n) { continue }
+            try {
+              Set-RuleOption -FilePath $xmlPath -Option $n -Delete -ErrorAction Stop
+              Write-Host "Deleted base-only option $n (if it was present)"
+            } catch {
+              Write-Host "Option $n not present or not deletable; continuing"
             }
           }
           Write-Host 'Rule options remaining:'
-          Get-RuleOption -FilePath wdac/VagarSupplemental.xml | ForEach-Object { Write-Host "  Option $($_.Option) : $($_.Name)" }
+          $remaining = Get-XmlOptions
+          foreach ($s in $remaining) { Write-Host "  $s" }
+          foreach ($bad in @('Audit Mode', 'UMCI', 'Script Enforcement', 'Advanced Boot Options Menu')) {
+            if ($remaining -match [regex]::Escape($bad)) { throw "Base-only rule option '$bad' survived the strip" }
+          }
+          Write-Host 'Strip complete: only allowlisted rule options remain.'
 
       - name: Validate policy XML
         shell: powershell
