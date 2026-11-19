@@ -45,7 +45,6 @@ jobs:
             'Set-RuleOption'     = @('FilePath', 'Option', 'Delete')
             'Set-CIPolicyIdInfo' = @('FilePath', 'PolicyId', 'SupplementsBasePolicyID', 'PolicyName')
             'Set-CIPolicyVersion' = @('FilePath', 'Version')
-            'Test-CIPolicy'      = @('XmlFile')
             'ConvertFrom-CIPolicy' = @('XmlFilePath', 'BinaryFilePath')
           }
           foreach ($cmd in $need.Keys) {
@@ -157,8 +156,12 @@ jobs:
             Write-Host 'WARNING: hash rules present. A file covered only by a hash rule breaks if it is re-signed; signer rules are preferred for Vagar files.'
             foreach ($h in $hashRules) { Write-Host "  hash rule: $($h.GetAttribute('FriendlyName')) $($h.GetAttribute('Hash'))" }
           }
-          Test-CIPolicy -XmlFile $xmlPath
-          Write-Host 'Test-CIPolicy passed.'
+          # NOTE: there is NO Test-CIPolicy cmdlet in ConfigCI (run
+          # 44451275170 failed on it). The [xml] parse above already
+          # proves the file is well-formed XML, and ConvertFrom-CIPolicy
+          # validates the policy when it converts it, so no separate
+          # validation call is needed here.
+          Write-Host 'Policy XML is well-formed with signer rules present.'
 
       - name: Set policy ID (supplements SAC base) and version
         shell: powershell
