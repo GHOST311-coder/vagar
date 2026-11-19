@@ -71,3 +71,8 @@ node_modules/
 models/
 *.safetensors
 *.gguf
+
+# SAC supplemental-policy staging: the Actions build needs these Vagar-signed
+# binaries, even though *.pyd is ignored elsewhere.
+!wdac/staging/**
+
