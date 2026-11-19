@@ -66,8 +66,15 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          # The Vagar certificate is self-signed: on this fresh runner its
+          # chain does not validate until the public cert is installed in
+          # the Trusted Root store. Without that, Get-AuthenticodeSignature
+          # reports every file as UnknownError (run 44451551840 proved
+          # it). Install it first (public cert only; the private key
+          # never leaves the laptop).
+          Import-Certificate -FilePath wdac/certs/vagar-signing.cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
           $cer = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('wdac/certs/vagar-signing.cer')
-          Write-Host "Vagar cert: $($cer.Subject) thumbprint $($cer.Thumbprint) expires $($cer.NotAfter)"
+          Write-Host "Vagar cert installed in Trusted Root: $($cer.Subject) thumbprint $($cer.Thumbprint) expires $($cer.NotAfter)"
           $files = Get-ChildItem wdac/staging -Recurse -File | Where-Object { $_.Extension -in '.pyd', '.dll' }
           Write-Host "Staged .pyd/.dll files: $($files.Count)"
           if ($files.Count -eq 0) { throw 'No staged files found under wdac/staging' }
